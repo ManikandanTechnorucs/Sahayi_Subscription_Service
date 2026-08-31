@@ -1,0 +1,15 @@
+---
+description: Prisma 7 + MariaDB for Subscription Service. Start from subscriptionmaster.
+globs: "{**/prisma/**,**/repositories/**/*.ts,**/libs/db/**/*.ts}"
+alwaysApply: false
+---
+
+# Prisma / MariaDB
+
+- Client via `libs/db/src/prisma.ts` (copy from User Service; `@prisma/adapter-mariadb`).
+- Schema: `prisma/schema.prisma`. Existing catalog table: **`subscriptionmaster`** (see User Service schema). Preserve column names (`Id`, `MonthlyCost`, `yearlyCost`, …).
+- Generated client: `generated/prisma` — never edit.
+
+After schema edits: `npx prisma migrate dev` (or `db pull` if the table already exists) then `npx prisma generate`.
+
+Repositories inject `PrismaClient`, map rows to camelCase DTOs matching `Sahayi_User_Service/src/types/subscription.types.ts`. Filter `IsActive: true` on list unless an admin endpoint should include inactive plans.

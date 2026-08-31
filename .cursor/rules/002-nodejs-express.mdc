@@ -1,0 +1,24 @@
+---
+description: Express bootstrap, route middleware order, thin controllers, AppError handling.
+alwaysApply: true
+---
+
+# Express
+
+- `src/app.ts`: helmet, cors, `express.json()`, `requestLogger`, Swagger (dev), routers, **`errorHandler` last**. No `listen()`.
+- `src/server.ts`: `app.listen(config.SUBSCRIPTION_SERVICE_PORT)`.
+- Mounts are unversioned, e.g. `/subscriptions`.
+
+## Authenticated route chain
+
+```
+authMiddleware → requireAccessToken → validate(schema) → asAuthenticatedHandler(controller.method)
+```
+
+Pull controllers from `container`. Use `validate()` from `libs/validation/src/validate.ts`.
+
+## Controllers
+
+Bind methods in the constructor. Empty lists → `response.NO_DATA_FOUND` (200). Creates → 201 `{ ...response.DATA_SAVED, data }`. Always `try/catch` → `next(error)`.
+
+Copy `auth.middleware.ts` and `error-handler.ts` from User Service. Throw `AppError` subclasses from services only.

@@ -1,0 +1,40 @@
+---
+description: Sahayi Subscription Service stack, folders, and naming. Copy User Service layout.
+alwaysApply: true
+---
+
+# Sahayi Subscription Service — stack and layout
+
+TypeScript + Express 5 microservice. Architecture reference: sibling `Sahayi_User_Service/`. Do not add this work to User Service. Do not introduce JS files, mysql2, Mongoose, Flyway, awilix, or `/api/v1` route prefixes.
+
+## Stack
+
+- Node.js 20, Express 5, TypeScript (strict)
+- Prisma 7 + MariaDB adapter (`libs/db/src/prisma.ts`)
+- Zod (`libs/validation/src/validate.ts`)
+- Pino, JWT auth
+- Default port `SUBSCRIPTION_SERVICE_PORT` **3007**
+
+## Folders
+
+```
+src/routes controllers services repositories validators types
+src/middlewares clients openapi errors
+src/container.ts  src/app.ts  src/server.ts
+libs/             config db logger auth validation response
+prisma/schema.prisma
+generated/prisma  never edit
+```
+
+## Naming
+
+| Artefact | Convention | Example |
+|---|---|---|
+| Files | kebab-case | `subscription.service.ts` |
+| Classes | PascalCase | `SubscriptionService` |
+| Methods | camelCase | `listSubscriptions` |
+| Env vars | UPPER_SNAKE | `SUBSCRIPTION_SERVICE_PORT` |
+| Prisma fields | match DB (`Id`, `Name`) | |
+| API DTOs | camelCase | `{ id, name, monthlyCost }` |
+
+Logs use `service: 'subscription-service'`. Follow the feature slice in `011-feature-slice.mdc`.

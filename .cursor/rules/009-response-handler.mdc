@@ -1,0 +1,19 @@
+---
+description: Mandatory JSON envelope via libs/response. Never return raw objects from controllers.
+alwaysApply: true
+---
+
+# Controller responses
+
+Copy `libs/response/src/response.ts` from User Service. Never return ad-hoc JSON.
+
+```ts
+// List OK       → res.status(200).json(response.createJson(response.SUCCESS_CODE, data, data.length))
+// Empty list    → res.status(200).json(response.NO_DATA_FOUND)
+// Single OK     → res.status(200).json(response.createJson(response.SUCCESS_CODE, data))
+// Created       → res.status(201).json({ ...response.DATA_SAVED, data })
+// Updated       → res.status(200).json({ ...response.DATA_UPDATED, data })
+// Deleted       → res.status(200).json(response.DATA_DELETED_SUCCESSFULLY)
+```
+
+4xx/5xx: throw `AppError` from the service; `errorHandler` emits `createError` / `UNAUTHORIZED` / `PERMISSION_DENIED`. Missing entity → `NotFoundError` (404), not empty-list `NO_DATA_FOUND`.

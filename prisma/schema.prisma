@@ -1,0 +1,153 @@
+// =============================================================================
+// SAHAYI - Subscription Service Prisma Schema
+// =============================================================================
+//
+// Shares MySQL with User Service. Catalog table: subscriptionmaster.
+// After schema edits: npx prisma generate
+// Apply new tables/columns via migrate or SQL against the shared database.
+// =============================================================================
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../generated/prisma"
+  importFileExtension = "ts"
+  moduleFormat        = "cjs"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum UserSubscriptionStatus {
+  created
+  authenticated
+  active
+  pending
+  halted
+  paused
+  cancelled
+  completed
+  expired
+}
+
+enum BillingCycle {
+  monthly
+  yearly
+}
+
+enum WebhookProcessingStatus {
+  processed
+  ignored
+  failed
+}
+
+model subscriptionmaster {
+  Id                       Int       @id @default(autoincrement())
+  Name                     String    @unique(map: "UX_SubscriptionMaster_Name") @db.VarChar(100)
+  Label                    String    @unique(map: "UX_SubscriptionMaster_Label") @db.VarChar(100)
+  MonthlyCost              String    @db.VarChar(10)
+  yearlyCost               String    @db.VarChar(10)
+  FamilyMembersLimit       Int
+  EmergencyContactsLimit   Int
+  CaregiverConnection      Int
+  CaretakerConnection      Int
+  RemindersLimit           String    @db.VarChar(10)
+  EmergencySOSalert        Boolean
+  WearableIntegration      Boolean
+  AdvancedReminderTracking Boolean
+  AdvancedHealthMonitor    Boolean
+  AdvancedAINotification   Boolean
+  AITextLimit              String?   @db.VarChar(50)
+  AIVoiceLimit             String?   @db.VarChar(50)
+  RazorpayPlanIdMonthly    String?   @db.VarChar(40)
+  RazorpayPlanIdYearly     String?   @db.VarChar(40)
+  IsActive                 Boolean   @default(true)
+  CreatedAt                DateTime  @default(now()) @db.DateTime(0)
+  UpdatedAt                DateTime? @db.DateTime(0)
+
+  userSubscriptions UserSubscription[]
+}
+
+model UserSubscription {
+  Id                     BigInt                 @id @default(autoincrement())
+  UserId                 String                 @db.VarChar(64)
+  PlanId                 Int
+  BillingCycle           BillingCycle
+  Status                 UserSubscriptionStatus @default(created)
+  RazorpaySubscriptionId String                 @unique(map: "UX_UserSubscription_RazorpaySubscriptionId") @db.VarChar(40)
+  RazorpayCustomerId     String?                @db.VarChar(40)
+  RazorpayPlanId         String                 @db.VarChar(40)
+  TotalCount             Int
+  PaidCount              Int                    @default(0)
+  RemainingCount         Int?
+  Quantity               Int                    @default(1)
+  CurrentStart           DateTime?              @db.DateTime(0)
+  CurrentEnd             DateTime?              @db.DateTime(0)
+  ChargeAt               DateTime?              @db.DateTime(0)
+  CheckoutVerifiedAt     DateTime?              @db.DateTime(0)
+  CancelledAt            DateTime?              @db.DateTime(0)
+  CancelAtCycleEnd       Boolean                @default(false)
+  PausedAt               DateTime?              @db.DateTime(0)
+  EndedAt                DateTime?              @db.DateTime(0)
+  CreatedAt              DateTime               @default(now()) @db.DateTime(0)
+  UpdatedAt              DateTime?              @db.DateTime(0)
+
+  plan     subscriptionmaster      @relation(fields: [PlanId], references: [Id])
+  payments SubscriptionPayment[]
+  history  UserSubscriptionHistory[]
+
+  @@index([UserId, Status], map: "IX_UserSubscription_UserId_Status")
+  @@map("user_subscriptions")
+}
+
+model UserSubscriptionHistory {
+  Id                     BigInt                  @id @default(autoincrement())
+  UserId                 String                  @db.VarChar(64)
+  UserSubscriptionId     BigInt
+  PlanId                 Int
+  BillingCycle           BillingCycle
+  FromStatus             UserSubscriptionStatus?
+  ToStatus               UserSubscriptionStatus
+  EventSource            String                  @db.VarChar(40)
+  EventType              String?                 @db.VarChar(100)
+  RazorpaySubscriptionId String                  @db.VarChar(40)
+  Note                   String?                 @db.VarChar(255)
+  CreatedAt              DateTime                @default(now()) @db.DateTime(0)
+
+  userSubscription UserSubscription @relation(fields: [UserSubscriptionId], references: [Id])
+
+  @@index([UserId, CreatedAt], map: "IX_UserSubscriptionHistory_UserId_CreatedAt")
+  @@index([UserSubscriptionId, CreatedAt], map: "IX_UserSubscriptionHistory_UserSubscriptionId_CreatedAt")
+  @@map("usersubscriptionhistory")
+}
+
+model SubscriptionPayment {
+  Id                 BigInt   @id @default(autoincrement())
+  UserSubscriptionId BigInt
+  RazorpayPaymentId  String   @unique(map: "UX_SubscriptionPayment_RazorpayPaymentId") @db.VarChar(40)
+  Amount             Int?
+  Currency           String?  @db.VarChar(10)
+  Status             String   @db.VarChar(40)
+  PaidAt             DateTime? @db.DateTime(0)
+  CreatedAt          DateTime @default(now()) @db.DateTime(0)
+  UpdatedAt          DateTime? @db.DateTime(0)
+
+  userSubscription UserSubscription @relation(fields: [UserSubscriptionId], references: [Id])
+
+  @@index([UserSubscriptionId], map: "IX_SubscriptionPayment_UserSubscriptionId")
+  @@map("subscription_payments")
+}
+
+model WebhookEvent {
+  Id                     BigInt                   @id @default(autoincrement())
+  EventId                String                   @unique(map: "UX_WebhookEvent_EventId") @db.VarChar(100)
+  EventType              String                   @db.VarChar(100)
+  RazorpaySubscriptionId String?                  @db.VarChar(40)
+  ProcessingStatus       WebhookProcessingStatus  @default(processed)
+  ErrorMessage           String?                  @db.VarChar(500)
+  ProcessedAt            DateTime                 @default(now()) @db.DateTime(0)
+  CreatedAt              DateTime                 @default(now()) @db.DateTime(0)
+
+  @@index([RazorpaySubscriptionId], map: "IX_WebhookEvent_RazorpaySubscriptionId")
+  @@map("webhook_events")
+}

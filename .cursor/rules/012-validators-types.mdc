@@ -1,0 +1,13 @@
+---
+description: Zod validators and DTO conventions for Subscription Service.
+globs: "{**/validators/**/*.ts,**/types/**/*.ts}"
+alwaysApply: false
+---
+
+# Validators and DTOs
+
+- One Zod schema export per endpoint: `{ headers?, params?, query?, body? }`.
+- Auth routes: `z.looseObject({ authorization: z.string().regex(/^Bearer\s+\S+$/) })`.
+- Bodies: `.strict()`. Align `.max(n)` with `@db.VarChar(n)`.
+- Plan DTO fields match User Service `SubscriptionPlan` (`id`, `name`, `label`, `monthlyCost`, `yearlyCost`, limits, feature flags).
+- Do not import Prisma model types into controllers.

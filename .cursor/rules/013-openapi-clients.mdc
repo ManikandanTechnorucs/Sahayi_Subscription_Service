@@ -1,0 +1,12 @@
+---
+description: OpenAPI document and optional HTTP clients for Subscription Service.
+globs: "{**/openapi/**/*.ts,**/swagger.ts,**/clients/**/*.ts,**/app.ts}"
+alwaysApply: false
+---
+
+# OpenAPI and clients
+
+- Document: `src/openapi/subscription-service.openapi.ts`. Swagger at `/api-docs` in development only.
+- Every endpoint updates paths, `operationId`, tags, and envelope schemas (`success`, `code`, `message`, `data`).
+- Express paths stay unversioned (`/subscriptions`). APIM may add `/api/v1`.
+- Clients: `src/clients/*.client.ts` with `fetch` + `config.*_BASE_URL`. Not from repositories or controllers.

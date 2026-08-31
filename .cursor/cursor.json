@@ -1,0 +1,21 @@
+{
+  "rules": [
+    ".cursor/rules/000-project-overview.mdc",
+    ".cursor/rules/001-solid-oop.mdc",
+    ".cursor/rules/002-nodejs-express.mdc",
+    ".cursor/rules/003-prisma.mdc",
+    ".cursor/rules/009-response-handler.mdc",
+    ".cursor/rules/010-layered-architecture.mdc",
+    ".cursor/rules/011-feature-slice.mdc",
+    ".cursor/rules/012-validators-types.mdc",
+    ".cursor/rules/013-openapi-clients.mdc"
+  ],
+  "alwaysApply": [
+    ".cursor/rules/000-project-overview.mdc",
+    ".cursor/rules/001-solid-oop.mdc",
+    ".cursor/rules/002-nodejs-express.mdc",
+    ".cursor/rules/009-response-handler.mdc",
+    ".cursor/rules/010-layered-architecture.mdc",
+    ".cursor/rules/011-feature-slice.mdc"
+  ]
+}

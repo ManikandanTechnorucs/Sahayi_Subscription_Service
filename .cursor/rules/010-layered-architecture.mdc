@@ -1,0 +1,21 @@
+---
+description: Request flow and layer contracts for Subscription Service.
+alwaysApply: true
+---
+
+# Layered request flow
+
+```
+HTTP → app.ts → routes → controller → service → repository → Prisma
+```
+
+| Layer | May | Must not |
+|---|---|---|
+| Route | middleware, `container.*` | Prisma, `res.json`, business rules |
+| Validator | Zod `.strict()` bodies, bearer header | DB calls |
+| Controller | log, service, `response.*`, `next(error)` | Prisma, business rules |
+| Service | rules, `AppError`, repos/clients | `req`/`res`, Prisma |
+| Repository | Prisma, row → DTO | HTTP, 4xx `AppError` |
+| `libs/` | shared infra | subscription business rules |
+
+DTOs live in `src/types`. Prisma column names stay in repositories. Other services: `src/clients/` only.

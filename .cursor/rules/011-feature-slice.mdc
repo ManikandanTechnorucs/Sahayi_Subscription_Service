@@ -1,0 +1,21 @@
+---
+description: Files required when adding a domain or endpoint to Subscription Service.
+alwaysApply: true
+---
+
+# Feature slice
+
+When adding a domain, create all of these. Do not skip OpenAPI or container wiring.
+
+1. `src/types/{domain}.types.ts`
+2. `src/validators/{domain}.validator.ts` — Zod; auth routes include bearer headers; bodies `.strict()`
+3. `src/repositories/{domain}.repository.ts`
+4. `src/services/{domain}.service.ts`
+5. `src/controllers/{domain}.controller.ts` — bind handlers; `response` helper
+6. `src/routes/{domain}.routes.ts` — export default Router
+7. `src/container.ts` — wire
+8. `src/app.ts` — `app.use('/{path}', routes)`
+9. `src/openapi/subscription-service.openapi.ts`
+10. Prisma model only if the table/columns change
+
+First slice: `subscription` (plans). Copy `Sahayi_User_Service` `master.*` for list and `family-member.*` for CRUD. Do not invent `models/` or `src/config/`.

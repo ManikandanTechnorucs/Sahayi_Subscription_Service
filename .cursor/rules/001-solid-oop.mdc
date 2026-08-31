@@ -1,0 +1,30 @@
+---
+description: SOLID and OOP — constructor DI, private fields, layer SRP (same as User Service).
+alwaysApply: true
+---
+
+# SOLID
+
+- **Routes** wire HTTP → middleware → controller. No business logic.
+- **Controllers** parse, log, call service, `libs/response`, `next(error)`.
+- **Services** own rules. Throw `AppError`. Never import Express or Prisma.
+- **Repositories** own Prisma. Map to `src/types` DTOs. Return `null` for missing rows.
+- **Validators** own Zod. **libs/** own infra.
+
+Never call Prisma from a controller or service. Never `res.json` from a service.
+
+## Constructor injection
+
+Wire only in `src/container.ts`. Store deps as `readonly #field`.
+
+```ts
+export class SubscriptionService {
+  readonly #subscriptionRepository: SubscriptionRepository;
+
+  constructor(subscriptionRepository: SubscriptionRepository) {
+    this.#subscriptionRepository = subscriptionRepository;
+  }
+}
+```
+
+Do not new-up repositories inside services. Do not use awilix.

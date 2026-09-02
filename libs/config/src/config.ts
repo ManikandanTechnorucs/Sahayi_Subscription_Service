@@ -53,6 +53,9 @@ const normalizeDatabaseUrl = (databaseUrl: string): string => {
   return url.toString();
 };
 
+/** Hosted User Service origin for entitlement sync. Change here and redeploy. */
+const USER_SERVICE_BASE_URL = 'http://20.40.58.216:3005';
+
 /**
  * Shared runtime configuration loaded from environment variables.
  */
@@ -67,8 +70,6 @@ export const config = {
   RAZORPAY_CURRENCY: getOptionalEnv('RAZORPAY_CURRENCY') ?? 'INR',
   RAZORPAY_DEFAULT_TOTAL_COUNT: Number(getOptionalEnv('RAZORPAY_DEFAULT_TOTAL_COUNT') ?? 12),
   CHECKOUT_DISPLAY_NAME: getOptionalEnv('CHECKOUT_DISPLAY_NAME') ?? 'Sahayi',
-  USER_SERVICE_BASE_URL:
-    getOptionalEnv('USER_SERVICE_BASE_URL') ?? 'http://20.40.58.216:3005',
-  INTERNAL_SERVICE_TOKEN:
-    getOptionalEnv('INTERNAL_SERVICE_TOKEN') ?? 'sahayi-internal-subscription-sync',
+  USER_SERVICE_BASE_URL,
+  INTERNAL_SERVICE_TOKEN: getRequiredEnv('INTERNAL_SERVICE_TOKEN'),
 };

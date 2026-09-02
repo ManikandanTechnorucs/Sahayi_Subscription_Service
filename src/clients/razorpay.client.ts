@@ -4,6 +4,25 @@ import { config } from '../../libs/config/src/config';
 import { logger } from '../../libs/logger/src/logger';
 import { BadRequestError, ServiceUnavailableError } from '../errors/app-error';
 
+export type CreateRazorpayPlanInput = {
+  period: 'monthly' | 'yearly';
+  interval?: number;
+  name: string;
+  amountPaise: number;
+  currency?: string;
+  description?: string;
+  notes?: Record<string, string>;
+};
+
+export type RazorpayPlanResult = {
+  id: string;
+  period: string;
+  interval: number;
+  itemName: string;
+  amount: number;
+  currency: string;
+};
+
 export type CreateRazorpaySubscriptionInput = {
   planId: string;
   totalCount: number;
@@ -46,6 +65,32 @@ export class RazorpayClient {
   getKeyId(): string {
     this.#assertConfigured();
     return config.RAZORPAY_KEY_ID;
+  }
+
+  /**
+   * Creates a Razorpay catalog plan (monthly or yearly).
+   * Amounts are immutable on Razorpay after create.
+   */
+  async createPlan(input: CreateRazorpayPlanInput): Promise<RazorpayPlanResult> {
+    const client = this.#assertConfigured();
+
+    try {
+      const created = await client.plans.create({
+        period: input.period,
+        interval: input.interval ?? 1,
+        item: {
+          name: input.name,
+          amount: input.amountPaise,
+          currency: input.currency ?? config.RAZORPAY_CURRENCY,
+          ...(input.description ? { description: input.description } : {}),
+        },
+        notes: input.notes ?? {},
+      });
+
+      return this.#mapPlan(created as unknown as Record<string, unknown>);
+    } catch (error) {
+      this.#logAndThrow('create plan failed', error);
+    }
   }
 
   /**
@@ -179,6 +224,22 @@ export class RazorpayClient {
     }
 
     return this.#client;
+  }
+
+  #mapPlan(raw: Record<string, unknown>): RazorpayPlanResult {
+    const item =
+      raw.item && typeof raw.item === 'object'
+        ? (raw.item as Record<string, unknown>)
+        : {};
+
+    return {
+      id: String(raw.id),
+      period: String(raw.period ?? ''),
+      interval: Number(raw.interval ?? 1),
+      itemName: String(item.name ?? ''),
+      amount: Number(item.amount ?? 0),
+      currency: String(item.currency ?? config.RAZORPAY_CURRENCY),
+    };
   }
 
   #mapSubscription(raw: Record<string, unknown>): RazorpaySubscriptionResult {

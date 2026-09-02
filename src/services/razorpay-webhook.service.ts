@@ -3,6 +3,7 @@ import type { RazorpayClient } from '../clients/razorpay.client';
 import { BadRequestError, UnauthorizedError } from '../errors/app-error';
 import type { UserSubscriptionRepository } from '../repositories/user-subscription.repository';
 import type { WebhookEventRepository } from '../repositories/webhook-event.repository';
+import type { UserSubscriptionService } from './user-subscription.service';
 import type { UserSubscriptionStatus } from '../types/user-subscription.types';
 
 const SUPPORTED_EVENTS = new Set([
@@ -48,15 +49,18 @@ export class RazorpayWebhookService {
   readonly #razorpayClient: RazorpayClient;
   readonly #webhookEventRepository: WebhookEventRepository;
   readonly #userSubscriptionRepository: UserSubscriptionRepository;
+  readonly #userSubscriptionService: UserSubscriptionService;
 
   constructor(
     razorpayClient: RazorpayClient,
     webhookEventRepository: WebhookEventRepository,
     userSubscriptionRepository: UserSubscriptionRepository,
+    userSubscriptionService: UserSubscriptionService,
   ) {
     this.#razorpayClient = razorpayClient;
     this.#webhookEventRepository = webhookEventRepository;
     this.#userSubscriptionRepository = userSubscriptionRepository;
+    this.#userSubscriptionService = userSubscriptionService;
   }
 
   async handleWebhook(input: {
@@ -205,6 +209,16 @@ export class RazorpayWebhookService {
         eventType,
       },
     });
+
+    if (nextStatus === 'authenticated' || nextStatus === 'active') {
+      const granted = await this.#userSubscriptionRepository.findByRazorpaySubscriptionId(
+        razorpaySubscriptionId,
+      );
+
+      if (granted) {
+        await this.#userSubscriptionService.activateEntitlements(granted);
+      }
+    }
   }
 
   #statusFromEvent(eventType: string, entity: Record<string, unknown>): UserSubscriptionStatus {

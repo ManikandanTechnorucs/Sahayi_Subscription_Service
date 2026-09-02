@@ -68,7 +68,8 @@ export const subscriptionServiceOpenApiDocument = {
       post: {
         tags: ['Subscriptions'],
         summary: 'Create a subscription plan',
-        description: 'Creates a new subscription master record.',
+        description:
+          'Creates a subscription master record. When syncRazorpay is true (default), paid monthly/yearly costs also create Razorpay Plans and store the returned plan ids. Cost 0 (Free) is not synced to Razorpay.',
         operationId: 'createSubscription',
         security: [{ bearerAuth: [] }],
         requestBody: {
@@ -114,6 +115,139 @@ export const subscriptionServiceOpenApiDocument = {
           },
           '500': {
             description: 'Unexpected server error',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/subscriptions/sync-razorpay': {
+      post: {
+        tags: ['Subscriptions'],
+        summary: 'Sync Razorpay plans for catalog records',
+        description:
+          'Creates missing Razorpay monthly/yearly plans for active catalog records, or for the given ids. Free (0 cost) cycles are skipped. Existing Razorpay plan ids are left unchanged unless force is true. Razorpay plan amounts cannot be updated in place.',
+        operationId: 'syncRazorpayPlans',
+        security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SyncRazorpayPlansRequest' },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Razorpay plans synced',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/SyncRazorpayPlansResponse' },
+              },
+            },
+          },
+          '400': {
+            description: 'Validation or Razorpay error',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '401': {
+            description: 'Missing or invalid access token',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '404': {
+            description: 'One or more catalog ids were not found',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '503': {
+            description: 'Razorpay is not configured',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/subscriptions/{id}/sync-razorpay': {
+      post: {
+        tags: ['Subscriptions'],
+        summary: 'Sync Razorpay plans for one catalog record',
+        description:
+          'Creates missing Razorpay monthly/yearly plans for the catalog record and persists the ids.',
+        operationId: 'syncRazorpayPlan',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            description: 'Subscription catalog identifier',
+            schema: {
+              type: 'string',
+              pattern: '^\\d+$',
+              example: '2',
+            },
+          },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SyncRazorpayPlanRequest' },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Razorpay plans synced',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/SyncRazorpayPlanResponse' },
+              },
+            },
+          },
+          '400': {
+            description: 'Validation or Razorpay error',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '401': {
+            description: 'Missing or invalid access token',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '404': {
+            description: 'Subscription not found',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '503': {
+            description: 'Razorpay is not configured',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' },
@@ -270,7 +404,7 @@ export const subscriptionServiceOpenApiDocument = {
         tags: ['My Subscriptions'],
         summary: 'Create Razorpay subscription and checkout params',
         description:
-          'Creates a Razorpay subscription for the authenticated user and returns checkout parameters. Does not activate entitlements until webhooks confirm.',
+          'Creates a Razorpay subscription for a paid plan and returns native Checkout parameters. Reuses an unfinished checkout for the same plan, or creates a replacement checkout when changing plans. Free plans skip Razorpay and update entitlements immediately. Does not activate a paid plan until checkout is verified.',
         operationId: 'createUserSubscription',
         security: [{ bearerAuth: [] }],
         requestBody: {
@@ -307,7 +441,7 @@ export const subscriptionServiceOpenApiDocument = {
             },
           },
           '409': {
-            description: 'User already has an active subscription',
+            description: 'User already has this paid subscription',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' },
@@ -322,7 +456,7 @@ export const subscriptionServiceOpenApiDocument = {
         tags: ['My Subscriptions'],
         summary: 'Verify checkout payment signature',
         description:
-          'Server-side verification of Razorpay checkout response. Marks checkout verified; activation still follows webhooks.',
+          'Server-side verification of Razorpay checkout response. Marks checkout verified, cancels the previous paid subscription if one exists, and updates user entitlements.',
         operationId: 'verifyUserSubscriptionCheckout',
         security: [{ bearerAuth: [] }],
         requestBody: {
@@ -730,6 +864,12 @@ export const subscriptionServiceOpenApiDocument = {
           razorpayPlanIdMonthly: { type: 'string', maxLength: 40, nullable: true },
           razorpayPlanIdYearly: { type: 'string', maxLength: 40, nullable: true },
           isActive: { type: 'boolean', example: true },
+          syncRazorpay: {
+            type: 'boolean',
+            default: true,
+            description:
+              'Create Razorpay monthly/yearly plans for paid costs and persist plan ids. Ignored for 0-cost cycles.',
+          },
         },
       },
       UpdateSubscriptionRequest: {
@@ -756,6 +896,81 @@ export const subscriptionServiceOpenApiDocument = {
           razorpayPlanIdMonthly: { type: 'string', maxLength: 40, nullable: true },
           razorpayPlanIdYearly: { type: 'string', maxLength: 40, nullable: true },
           isActive: { type: 'boolean' },
+        },
+      },
+      SyncRazorpayPlansRequest: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ids: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 100,
+            items: { type: 'integer', minimum: 1 },
+            description: 'Catalog ids to sync. Omit to sync all active plans.',
+          },
+          force: {
+            type: 'boolean',
+            default: false,
+            description:
+              'When true, create new Razorpay plans even if ids already exist. Razorpay amounts are immutable; use this only when you intend to replace the mapped plan ids.',
+          },
+        },
+      },
+      SyncRazorpayPlanRequest: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          force: { type: 'boolean', default: false },
+        },
+      },
+      RazorpayPlanSyncCycleResult: {
+        type: 'object',
+        required: ['action', 'razorpayPlanId'],
+        properties: {
+          action: { type: 'string', enum: ['created', 'existing', 'skipped'] },
+          razorpayPlanId: { type: 'string', nullable: true, example: 'plan_xxxxx' },
+          reason: { type: 'string', example: 'Free plans are not synced to Razorpay' },
+        },
+      },
+      SyncRazorpayPlanResult: {
+        type: 'object',
+        required: ['plan', 'monthly', 'yearly'],
+        properties: {
+          plan: { $ref: '#/components/schemas/SubscriptionPlan' },
+          monthly: { $ref: '#/components/schemas/RazorpayPlanSyncCycleResult' },
+          yearly: { $ref: '#/components/schemas/RazorpayPlanSyncCycleResult' },
+        },
+      },
+      SyncRazorpayPlansResult: {
+        type: 'object',
+        required: ['count', 'results'],
+        properties: {
+          count: { type: 'integer', example: 2 },
+          results: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/SyncRazorpayPlanResult' },
+          },
+        },
+      },
+      SyncRazorpayPlanResponse: {
+        type: 'object',
+        required: ['success', 'code', 'message', 'data'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          code: { type: 'string', example: 'DATA_UPDATED' },
+          message: { type: 'string' },
+          data: { $ref: '#/components/schemas/SyncRazorpayPlanResult' },
+        },
+      },
+      SyncRazorpayPlansResponse: {
+        type: 'object',
+        required: ['success', 'code', 'message', 'data'],
+        properties: {
+          success: { type: 'boolean', example: true },
+          code: { type: 'string', example: 'DATA_UPDATED' },
+          message: { type: 'string' },
+          data: { $ref: '#/components/schemas/SyncRazorpayPlansResult' },
         },
       },
       CreateUserSubscriptionRequest: {
@@ -846,18 +1061,21 @@ export const subscriptionServiceOpenApiDocument = {
           'subscriptionId',
           'razorpaySubscriptionId',
           'razorpayKeyId',
+          'checkoutRequired',
           'status',
           'plan',
           'checkout',
         ],
         properties: {
-          subscriptionId: { type: 'string' },
-          razorpaySubscriptionId: { type: 'string' },
-          razorpayKeyId: { type: 'string', description: 'Public Razorpay key id only' },
+          subscriptionId: { type: 'string', nullable: true },
+          razorpaySubscriptionId: { type: 'string', nullable: true },
+          razorpayKeyId: { type: 'string', nullable: true, description: 'Public Razorpay key id only' },
+          checkoutRequired: { type: 'boolean' },
           status: { type: 'string' },
           plan: { $ref: '#/components/schemas/SubscriptionPlan' },
           checkout: {
             type: 'object',
+            nullable: true,
             required: ['subscriptionId', 'name', 'description', 'prefill'],
             properties: {
               subscriptionId: { type: 'string' },

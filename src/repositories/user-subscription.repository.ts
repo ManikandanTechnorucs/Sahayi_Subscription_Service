@@ -126,13 +126,17 @@ export type UpdateUserSubscriptionRecordInput = {
   };
 };
 
-const ACTIVE_STATUSES: UserSubscriptionStatus[] = [
-  'created',
+const BILLING_STATUSES: UserSubscriptionStatus[] = [
   'authenticated',
   'active',
   'pending',
   'halted',
   'paused',
+];
+
+const NON_TERMINAL_STATUSES: UserSubscriptionStatus[] = [
+  'created',
+  ...BILLING_STATUSES,
 ];
 
 /**
@@ -158,13 +162,39 @@ export class UserSubscriptionRepository {
     const row = await this.#prisma.userSubscription.findFirst({
       where: {
         UserId: userId,
-        Status: { in: ACTIVE_STATUSES },
+        Status: { in: BILLING_STATUSES },
       },
       orderBy: { CreatedAt: 'desc' },
       include: { plan: { select: planSelect } },
     });
 
     return row ? this.#mapUserSubscription(row) : null;
+  }
+
+  async findCreatedByUserId(userId: string): Promise<UserSubscription | null> {
+    const row = await this.#prisma.userSubscription.findFirst({
+      where: {
+        UserId: userId,
+        Status: 'created',
+      },
+      orderBy: { CreatedAt: 'desc' },
+      include: { plan: { select: planSelect } },
+    });
+
+    return row ? this.#mapUserSubscription(row) : null;
+  }
+
+  async findNonTerminalByUserId(userId: string): Promise<UserSubscription[]> {
+    const rows = await this.#prisma.userSubscription.findMany({
+      where: {
+        UserId: userId,
+        Status: { in: NON_TERMINAL_STATUSES },
+      },
+      orderBy: { CreatedAt: 'desc' },
+      include: { plan: { select: planSelect } },
+    });
+
+    return rows.map((row) => this.#mapUserSubscription(row));
   }
 
   async findByIdForUser(id: bigint, userId: string): Promise<UserSubscription | null> {

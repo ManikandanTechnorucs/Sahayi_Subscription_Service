@@ -1,7 +1,9 @@
 import { config } from '../../libs/config/src/config';
+import { logger } from '../../libs/logger/src/logger';
 import type { RazorpayClient } from '../clients/razorpay.client';
+import type { UserEntitlementClient } from '../clients/user-entitlement.client';
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '../errors/app-error';
-import type { UserSubscriptionRepository } from '../repositories/user-subscription.repository';
+import type { UserSubscriptionRepository, CatalogPlanWithRazorpay } from '../repositories/user-subscription.repository';
 import type {
   CancelUserSubscriptionInput,
   CreateCheckoutResponse,
@@ -12,6 +14,7 @@ import type {
 } from '../types/user-subscription.types';
 
 const TERMINAL_STATUSES: UserSubscriptionStatus[] = ['cancelled', 'completed', 'expired'];
+const ENTITLEMENT_STATUSES: UserSubscriptionStatus[] = ['authenticated', 'active'];
 
 /**
  * Business logic for user Razorpay subscriptions.
@@ -19,29 +22,71 @@ const TERMINAL_STATUSES: UserSubscriptionStatus[] = ['cancelled', 'completed', '
 export class UserSubscriptionService {
   readonly #userSubscriptionRepository: UserSubscriptionRepository;
   readonly #razorpayClient: RazorpayClient;
+  readonly #userEntitlementClient: UserEntitlementClient;
 
   constructor(
     userSubscriptionRepository: UserSubscriptionRepository,
     razorpayClient: RazorpayClient,
+    userEntitlementClient: UserEntitlementClient,
   ) {
     this.#userSubscriptionRepository = userSubscriptionRepository;
     this.#razorpayClient = razorpayClient;
+    this.#userEntitlementClient = userEntitlementClient;
   }
 
   async createSubscription(
     userId: string,
     input: CreateUserSubscriptionInput,
   ): Promise<CreateCheckoutResponse> {
-    const existing = await this.#userSubscriptionRepository.findActiveByUserId(userId);
-
-    if (existing) {
-      throw new ConflictError('User already has an active subscription');
-    }
-
     const plan = await this.#userSubscriptionRepository.findCatalogPlanById(input.planId);
 
     if (!plan) {
       throw new NotFoundError('Subscription plan');
+    }
+
+    const inFlight = await this.#userSubscriptionRepository.findCreatedByUserId(userId);
+    const billing = await this.#userSubscriptionRepository.findActiveByUserId(userId);
+
+    if (!this.#isPaidCycle(plan, input.billingCycle)) {
+      if (inFlight) {
+        await this.#cancelQuietly(inFlight, 'Abandoned checkout cancelled for free plan change');
+      }
+
+      if (billing) {
+        await this.#cancelQuietly(billing, 'Paid subscription cancelled for free plan change');
+      }
+
+      await this.#userEntitlementClient.setSubscriptionId(userId, plan.id);
+
+      return {
+        subscriptionId: null,
+        razorpaySubscriptionId: null,
+        razorpayKeyId: null,
+        checkoutRequired: false,
+        status: 'none',
+        plan,
+        checkout: null,
+      };
+    }
+
+    if (
+      inFlight &&
+      inFlight.planId === input.planId &&
+      inFlight.billingCycle === input.billingCycle
+    ) {
+      return this.#toCheckoutResponse(inFlight, plan);
+    }
+
+    if (inFlight) {
+      await this.#cancelQuietly(inFlight, 'Abandoned checkout cancelled before creating a new plan');
+    }
+
+    if (
+      billing &&
+      billing.planId === input.planId &&
+      billing.billingCycle === input.billingCycle
+    ) {
+      throw new ConflictError('User already has this subscription');
     }
 
     const razorpayPlanId =
@@ -84,47 +129,13 @@ export class UserSubscriptionService {
       history: {
         eventSource: 'api_create',
         eventType: 'subscription.created',
-        note: `Created ${input.billingCycle} subscription`,
+        note: billing
+          ? `Created ${input.billingCycle} subscription to replace plan ${billing.planId}`
+          : `Created ${input.billingCycle} subscription`,
       },
     });
 
-    return {
-      subscriptionId: created.id,
-      razorpaySubscriptionId: created.razorpaySubscriptionId,
-      razorpayKeyId: this.#razorpayClient.getKeyId(),
-      status: created.status,
-      plan: {
-        id: plan.id,
-        name: plan.name,
-        label: plan.label,
-        monthlyCost: plan.monthlyCost,
-        yearlyCost: plan.yearlyCost,
-        familyMembersLimit: plan.familyMembersLimit,
-        emergencyContactsLimit: plan.emergencyContactsLimit,
-        caregiverConnection: plan.caregiverConnection,
-        caretakerConnection: plan.caretakerConnection,
-        remindersLimit: plan.remindersLimit,
-        emergencySOSalert: plan.emergencySOSalert,
-        wearableIntegration: plan.wearableIntegration,
-        advancedReminderTracking: plan.advancedReminderTracking,
-        advancedHealthMonitor: plan.advancedHealthMonitor,
-        advancedAINotification: plan.advancedAINotification,
-        aiTextLimit: plan.aiTextLimit,
-        aiVoiceLimit: plan.aiVoiceLimit,
-        razorpayPlanIdMonthly: plan.razorpayPlanIdMonthly,
-        razorpayPlanIdYearly: plan.razorpayPlanIdYearly,
-      },
-      checkout: {
-        subscriptionId: created.razorpaySubscriptionId,
-        name: config.CHECKOUT_DISPLAY_NAME,
-        description: plan.label,
-        prefill: {
-          contact: null,
-          email: null,
-          name: null,
-        },
-      },
-    };
+    return this.#toCheckoutResponse(created, plan);
   }
 
   async verifyCheckout(userId: string, input: VerifyUserSubscriptionInput): Promise<UserSubscription> {
@@ -174,7 +185,21 @@ export class UserSubscriptionService {
       throw new NotFoundError('Subscription');
     }
 
+    await this.activateEntitlements(updated);
+
     return updated;
+  }
+
+  /**
+   * Cancels other live subscriptions and writes users.SubscriptionId after payment/auth.
+   */
+  async activateEntitlements(subscription: UserSubscription): Promise<void> {
+    if (!ENTITLEMENT_STATUSES.includes(subscription.status)) {
+      return;
+    }
+
+    await this.#supersedeOthers(subscription.userId, subscription.id);
+    await this.#userEntitlementClient.setSubscriptionId(subscription.userId, subscription.planId);
   }
 
   async getCurrent(userId: string): Promise<UserSubscription | null> {
@@ -297,6 +322,79 @@ export class UserSubscriptionService {
     }
 
     return updated;
+  }
+
+  async #supersedeOthers(userId: string, keepId: string): Promise<void> {
+    const others = await this.#userSubscriptionRepository.findNonTerminalByUserId(userId);
+
+    for (const other of others) {
+      if (other.id === keepId) {
+        continue;
+      }
+
+      await this.#cancelQuietly(other, `Superseded by subscription ${keepId}`);
+    }
+  }
+
+  async #cancelQuietly(subscription: UserSubscription, note: string): Promise<void> {
+    if (TERMINAL_STATUSES.includes(subscription.status)) {
+      return;
+    }
+
+    try {
+      await this.#razorpayClient.cancelSubscription(subscription.razorpaySubscriptionId, false);
+    } catch (error) {
+      logger.warn(
+        {
+          service: 'subscription-service',
+          userId: subscription.userId,
+          razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+          err: error instanceof Error ? error.message : 'cancel failed',
+        },
+        'razorpay cancel during plan change failed',
+      );
+    }
+
+    await this.#userSubscriptionRepository.update(BigInt(subscription.id), {
+      status: 'cancelled',
+      cancelledAt: new Date(),
+      endedAt: new Date(),
+      history: {
+        eventSource: 'api_supersede',
+        eventType: 'subscription.cancelled',
+        note,
+      },
+    });
+  }
+
+  #toCheckoutResponse(
+    subscription: UserSubscription,
+    plan: CatalogPlanWithRazorpay,
+  ): CreateCheckoutResponse {
+    return {
+      subscriptionId: subscription.id,
+      razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+      razorpayKeyId: this.#razorpayClient.getKeyId(),
+      checkoutRequired: true,
+      status: subscription.status,
+      plan,
+      checkout: {
+        subscriptionId: subscription.razorpaySubscriptionId,
+        name: config.CHECKOUT_DISPLAY_NAME,
+        description: plan.label,
+        prefill: {
+          contact: null,
+          email: null,
+          name: null,
+        },
+      },
+    };
+  }
+
+  #isPaidCycle(plan: CatalogPlanWithRazorpay, billingCycle: 'monthly' | 'yearly'): boolean {
+    const cost = billingCycle === 'monthly' ? plan.monthlyCost : plan.yearlyCost;
+    const amount = Number(cost);
+    return Number.isFinite(amount) && amount > 0;
   }
 
   #assertMutable(subscription: UserSubscription): void {

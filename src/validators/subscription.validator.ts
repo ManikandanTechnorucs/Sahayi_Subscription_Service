@@ -67,6 +67,7 @@ const createSubscriptionBodySchema = z
     razorpayPlanIdMonthly: nullableOptionalString(40),
     razorpayPlanIdYearly: nullableOptionalString(40),
     isActive: z.boolean().optional(),
+    syncRazorpay: z.boolean().optional(),
   })
   .strict();
 
@@ -118,4 +119,28 @@ export const updateSubscriptionSchema = {
   headers: bearerAuthHeadersSchema,
   params: subscriptionIdParamsSchema,
   body: updateSubscriptionBodySchema,
+};
+
+const syncRazorpayPlansBodySchema = z
+  .object({
+    ids: z.array(z.number().int().min(1)).min(1).max(100).optional(),
+    force: z.boolean().optional(),
+  })
+  .strict();
+
+const syncRazorpayPlanBodySchema = z
+  .object({
+    force: z.boolean().optional(),
+  })
+  .strict();
+
+export const syncRazorpayPlansSchema = {
+  headers: bearerAuthHeadersSchema,
+  body: syncRazorpayPlansBodySchema.default({}),
+};
+
+export const syncRazorpayPlanSchema = {
+  headers: bearerAuthHeadersSchema,
+  params: subscriptionIdParamsSchema,
+  body: syncRazorpayPlanBodySchema.default({}),
 };

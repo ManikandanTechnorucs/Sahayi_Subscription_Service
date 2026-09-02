@@ -85,6 +85,47 @@ export class SubscriptionRepository {
   }
 
   /**
+   * Returns a plan by unique name, or null if missing.
+   */
+  async findByName(name: string): Promise<SubscriptionPlan | null> {
+    const row = await this.#prisma.subscriptionmaster.findUnique({
+      where: { Name: name },
+      select: subscriptionSelect,
+    });
+
+    return row ? this.#mapSubscription(row) : null;
+  }
+
+  /**
+   * Returns a plan by unique label, or null if missing.
+   */
+  async findByLabel(label: string): Promise<SubscriptionPlan | null> {
+    const row = await this.#prisma.subscriptionmaster.findUnique({
+      where: { Label: label },
+      select: subscriptionSelect,
+    });
+
+    return row ? this.#mapSubscription(row) : null;
+  }
+
+  /**
+   * Returns subscription master records by id, preserving unique matches only.
+   */
+  async findByIds(ids: number[]): Promise<SubscriptionPlan[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const rows = await this.#prisma.subscriptionmaster.findMany({
+      where: { Id: { in: ids } },
+      orderBy: { Id: 'asc' },
+      select: subscriptionSelect,
+    });
+
+    return rows.map((row) => this.#mapSubscription(row));
+  }
+
+  /**
    * Creates a subscription plan.
    */
   async create(input: CreateSubscriptionInput): Promise<SubscriptionPlan> {

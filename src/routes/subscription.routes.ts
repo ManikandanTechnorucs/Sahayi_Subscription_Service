@@ -10,6 +10,8 @@ import {
   createSubscriptionSchema,
   getSubscriptionSchema,
   listSubscriptionsSchema,
+  syncRazorpayPlanSchema,
+  syncRazorpayPlansSchema,
   updateSubscriptionSchema,
 } from '../validators/subscription.validator';
 
@@ -23,20 +25,36 @@ router.get(
   asAuthenticatedHandler(container.subscriptionController.listSubscriptions),
 );
 
-router.get(
-  '/:id',
-  authMiddleware,
-  requireAccessToken,
-  validate(getSubscriptionSchema),
-  asAuthenticatedHandler(container.subscriptionController.getSubscription),
-);
-
 router.post(
   '/',
   authMiddleware,
   requireAccessToken,
   validate(createSubscriptionSchema),
   asAuthenticatedHandler(container.subscriptionController.createSubscription),
+);
+
+router.post(
+  '/sync-razorpay',
+  authMiddleware,
+  requireAccessToken,
+  validate(syncRazorpayPlansSchema),
+  asAuthenticatedHandler(container.subscriptionController.syncRazorpayPlans),
+);
+
+router.post(
+  '/:id/sync-razorpay',
+  authMiddleware,
+  requireAccessToken,
+  validate(syncRazorpayPlanSchema),
+  asAuthenticatedHandler(container.subscriptionController.syncRazorpayPlan),
+);
+
+router.get(
+  '/:id',
+  authMiddleware,
+  requireAccessToken,
+  validate(getSubscriptionSchema),
+  asAuthenticatedHandler(container.subscriptionController.getSubscription),
 );
 
 router.put(

@@ -1,5 +1,6 @@
 import { prisma } from '../libs/db/src/prisma';
 import { RazorpayClient } from './clients/razorpay.client';
+import { UserEntitlementClient } from './clients/user-entitlement.client';
 import { RazorpayWebhookController } from './controllers/razorpay-webhook.controller';
 import { SubscriptionController } from './controllers/subscription.controller';
 import { UserSubscriptionController } from './controllers/user-subscription.controller';
@@ -10,20 +11,23 @@ import { RazorpayWebhookService } from './services/razorpay-webhook.service';
 import { SubscriptionService } from './services/subscription.service';
 import { UserSubscriptionService } from './services/user-subscription.service';
 
-const subscriptionRepository = new SubscriptionRepository(prisma);
-const subscriptionService = new SubscriptionService(subscriptionRepository);
-
 const razorpayClient = new RazorpayClient();
+const subscriptionRepository = new SubscriptionRepository(prisma);
+const subscriptionService = new SubscriptionService(subscriptionRepository, razorpayClient);
+
 const userSubscriptionRepository = new UserSubscriptionRepository(prisma);
 const webhookEventRepository = new WebhookEventRepository(prisma);
+const userEntitlementClient = new UserEntitlementClient();
 const userSubscriptionService = new UserSubscriptionService(
   userSubscriptionRepository,
   razorpayClient,
+  userEntitlementClient,
 );
 const razorpayWebhookService = new RazorpayWebhookService(
   razorpayClient,
   webhookEventRepository,
   userSubscriptionRepository,
+  userSubscriptionService,
 );
 
 /**

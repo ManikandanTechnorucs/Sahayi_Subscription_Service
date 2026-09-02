@@ -46,6 +46,11 @@ export type CreateSubscriptionInput = {
   razorpayPlanIdMonthly?: string | null;
   razorpayPlanIdYearly?: string | null;
   isActive?: boolean;
+  /**
+   * When true (default), create Razorpay monthly/yearly plans for paid costs
+   * and persist the returned plan ids. Free (0) cycles are skipped.
+   */
+  syncRazorpay?: boolean;
 };
 
 /**
@@ -71,4 +76,28 @@ export type UpdateSubscriptionInput = {
   razorpayPlanIdMonthly?: string | null;
   razorpayPlanIdYearly?: string | null;
   isActive?: boolean;
+};
+
+export type RazorpayPlanSyncAction = 'created' | 'existing' | 'skipped';
+
+export type RazorpayPlanSyncCycleResult = {
+  action: RazorpayPlanSyncAction;
+  razorpayPlanId: string | null;
+  reason?: string;
+};
+
+export type SyncRazorpayPlanResult = {
+  plan: SubscriptionPlan;
+  monthly: RazorpayPlanSyncCycleResult;
+  yearly: RazorpayPlanSyncCycleResult;
+};
+
+export type SyncRazorpayPlansInput = {
+  ids?: number[];
+  force?: boolean;
+};
+
+export type SyncRazorpayPlansResult = {
+  count: number;
+  results: SyncRazorpayPlanResult[];
 };

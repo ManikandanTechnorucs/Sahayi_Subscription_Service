@@ -59,10 +59,11 @@ export type CancelUserSubscriptionInput = {
 };
 
 export type CreateCheckoutResponse = {
-  subscriptionId: string;
-  razorpaySubscriptionId: string;
-  razorpayKeyId: string;
-  status: UserSubscriptionStatus;
+  subscriptionId: string | null;
+  razorpaySubscriptionId: string | null;
+  razorpayKeyId: string | null;
+  checkoutRequired: boolean;
+  status: UserSubscriptionStatus | 'none';
   plan: SubscriptionPlan;
   checkout: {
     subscriptionId: string;
@@ -73,5 +74,5 @@ export type CreateCheckoutResponse = {
       email: string | null;
       name: string | null;
     };
-  };
+  } | null;
 };

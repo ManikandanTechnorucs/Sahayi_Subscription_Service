@@ -5,6 +5,7 @@ import type { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import type { SubscriptionService } from '../services/subscription.service';
 import type {
   CreateSubscriptionInput,
+  SyncRazorpayPlansInput,
   UpdateSubscriptionInput,
 } from '../types/subscription.types';
 
@@ -20,6 +21,8 @@ export class SubscriptionController {
     this.getSubscription = this.getSubscription.bind(this);
     this.createSubscription = this.createSubscription.bind(this);
     this.updateSubscription = this.updateSubscription.bind(this);
+    this.syncRazorpayPlans = this.syncRazorpayPlans.bind(this);
+    this.syncRazorpayPlan = this.syncRazorpayPlan.bind(this);
   }
 
   /**
@@ -148,6 +151,75 @@ export class SubscriptionController {
       res.status(200).json({
         ...response.DATA_UPDATED,
         data: subscription,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Syncs Razorpay plans for active catalog records (or selected ids).
+   */
+  async syncRazorpayPlans(
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      logger.info(
+        {
+          service: 'subscription-service',
+          requestId: req.headers['x-request-id'],
+          userId: req.user.id,
+          method: req.method,
+          path: req.path,
+        },
+        'sync razorpay plans request received',
+      );
+
+      const data = await this.#subscriptionService.syncRazorpayPlans(
+        (req.body ?? {}) as SyncRazorpayPlansInput,
+      );
+
+      res.status(200).json({
+        ...response.DATA_UPDATED,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Syncs Razorpay plans for one catalog record.
+   */
+  async syncRazorpayPlan(
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      logger.info(
+        {
+          service: 'subscription-service',
+          requestId: req.headers['x-request-id'],
+          userId: req.user.id,
+          method: req.method,
+          path: req.path,
+          subscriptionId: req.params.id,
+        },
+        'sync razorpay plan request received',
+      );
+
+      const force = Boolean((req.body as { force?: boolean } | undefined)?.force);
+      const data = await this.#subscriptionService.syncRazorpayPlan(
+        req.params.id as string,
+        force,
+      );
+
+      res.status(200).json({
+        ...response.DATA_UPDATED,
+        data,
       });
     } catch (error) {
       next(error);

@@ -103,18 +103,18 @@ model UserSubscription {
 model UserSubscriptionHistory {
   Id                     BigInt                  @id @default(autoincrement())
   UserId                 String                  @db.VarChar(64)
-  UserSubscriptionId     BigInt
+  UserSubscriptionId     BigInt?
   PlanId                 Int
-  BillingCycle           BillingCycle
+  BillingCycle           BillingCycle?
   FromStatus             UserSubscriptionStatus?
-  ToStatus               UserSubscriptionStatus
+  ToStatus               UserSubscriptionStatus?
   EventSource            String                  @db.VarChar(40)
   EventType              String?                 @db.VarChar(100)
-  RazorpaySubscriptionId String                  @db.VarChar(40)
+  RazorpaySubscriptionId String?                 @db.VarChar(40)
   Note                   String?                 @db.VarChar(255)
   CreatedAt              DateTime                @default(now()) @db.DateTime(0)
 
-  userSubscription UserSubscription @relation(fields: [UserSubscriptionId], references: [Id])
+  userSubscription UserSubscription? @relation(fields: [UserSubscriptionId], references: [Id])
 
   @@index([UserId, CreatedAt], map: "IX_UserSubscriptionHistory_UserId_CreatedAt")
   @@index([UserSubscriptionId, CreatedAt], map: "IX_UserSubscriptionHistory_UserSubscriptionId_CreatedAt")

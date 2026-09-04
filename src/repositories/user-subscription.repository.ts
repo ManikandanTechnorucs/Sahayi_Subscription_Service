@@ -126,6 +126,19 @@ export type UpdateUserSubscriptionRecordInput = {
   };
 };
 
+export type CreateUserSubscriptionHistoryInput = {
+  userId: string;
+  userSubscriptionId?: bigint | null;
+  planId: number;
+  billingCycle?: BillingCycle | null;
+  fromStatus?: UserSubscriptionStatus | null;
+  toStatus?: UserSubscriptionStatus | null;
+  eventSource: string;
+  eventType?: string | null;
+  razorpaySubscriptionId?: string | null;
+  note?: string | null;
+};
+
 const BILLING_STATUSES: UserSubscriptionStatus[] = [
   'authenticated',
   'active',
@@ -163,6 +176,23 @@ export class UserSubscriptionRepository {
       where: {
         UserId: userId,
         Status: { in: BILLING_STATUSES },
+      },
+      orderBy: { CreatedAt: 'desc' },
+      include: { plan: { select: planSelect } },
+    });
+
+    return row ? this.#mapUserSubscription(row) : null;
+  }
+
+  async findActiveByUserIdExcluding(
+    userId: string,
+    excludeId: bigint,
+  ): Promise<UserSubscription | null> {
+    const row = await this.#prisma.userSubscription.findFirst({
+      where: {
+        UserId: userId,
+        Status: { in: BILLING_STATUSES },
+        Id: { not: excludeId },
       },
       orderBy: { CreatedAt: 'desc' },
       include: { plan: { select: planSelect } },
@@ -355,6 +385,23 @@ export class UserSubscriptionRepository {
     });
 
     return this.#mapUserSubscription(row);
+  }
+
+  async createHistory(input: CreateUserSubscriptionHistoryInput): Promise<void> {
+    await this.#prisma.userSubscriptionHistory.create({
+      data: {
+        UserId: input.userId,
+        UserSubscriptionId: input.userSubscriptionId ?? null,
+        PlanId: input.planId,
+        BillingCycle: input.billingCycle ?? null,
+        FromStatus: input.fromStatus ?? null,
+        ToStatus: input.toStatus ?? null,
+        EventSource: input.eventSource,
+        EventType: input.eventType ?? null,
+        RazorpaySubscriptionId: input.razorpaySubscriptionId ?? null,
+        Note: input.note ?? null,
+      },
+    });
   }
 
   async upsertPayment(input: {

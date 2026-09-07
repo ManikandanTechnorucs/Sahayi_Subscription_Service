@@ -26,8 +26,8 @@ export const subscriptionServiceOpenApiDocument = {
       description: 'Authenticated user subscription lifecycle (Razorpay)',
     },
     {
-      name: 'Webhooks',
-      description: 'Provider webhook ingestion (no JWT)',
+      name: 'Internal',
+      description: 'Service-to-service catalog sync (Admin Service). Requires x-internal-service-token.',
     },
   ],
   paths: {
@@ -129,7 +129,7 @@ export const subscriptionServiceOpenApiDocument = {
         tags: ['Subscriptions'],
         summary: 'Sync Razorpay plans for catalog records',
         description:
-          'Creates missing Razorpay monthly/yearly plans for active catalog records, or for the given ids. Free (0 cost) cycles are skipped. Existing Razorpay plan ids are left unchanged unless force is true. Razorpay plan amounts cannot be updated in place.',
+          'Creates missing Razorpay monthly/yearly plans for active catalog records, or for the given ids, on the Razorpay account for this process RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET (UAT test vs prod live). Free (0 cost) cycles are skipped. Stored ids are reused only if they exist on this dashboard; otherwise a new plan is created. Pass force to always create new Razorpay plans. Catalog sync also runs on service startup when RAZORPAY_SYNC_ON_STARTUP is true.',
         operationId: 'syncRazorpayPlans',
         security: [{ bearerAuth: [] }],
         requestBody: {
@@ -713,6 +713,79 @@ export const subscriptionServiceOpenApiDocument = {
         },
       },
     },
+    '/internal/subscriptions/{id}/sync-razorpay': {
+      post: {
+        tags: ['Internal'],
+        summary: 'Sync Razorpay plans for one catalog record (internal)',
+        description:
+          'Called by Admin Service after creating or updating a subscription plan. Creates or remaps Razorpay monthly/yearly plans for this environment and persists the ids. If a stored Razorpay plan exists with the same amount it is reused; otherwise a new plan is created.',
+        operationId: 'internalSyncRazorpayPlan',
+        security: [{ internalServiceToken: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            description: 'Subscription catalog identifier',
+            schema: {
+              type: 'string',
+              pattern: '^\\d+$',
+              example: '2',
+            },
+          },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SyncRazorpayPlanRequest' },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Razorpay plans synced',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/SyncRazorpayPlanResponse' },
+              },
+            },
+          },
+          '400': {
+            description: 'Validation or Razorpay error',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '401': {
+            description: 'Invalid internal service token',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '404': {
+            description: 'Catalog id was not found',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '503': {
+            description: 'Razorpay is not configured',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
     '/webhooks/razorpay': {
       post: {
         tags: ['Webhooks'],
@@ -749,6 +822,12 @@ export const subscriptionServiceOpenApiDocument = {
         scheme: 'bearer',
         bearerFormat: 'JWT',
         description: 'Access token issued by the auth service',
+      },
+      internalServiceToken: {
+        type: 'apiKey',
+        in: 'header',
+        name: 'x-internal-service-token',
+        description: 'Shared token for Admin Service catalog sync',
       },
     },
     schemas: {

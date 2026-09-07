@@ -5,6 +5,7 @@ import { config } from '../libs/config/src/config';
 import { errorHandler } from './middlewares/error-handler';
 import { requestLogger } from './middlewares/request-logger';
 import razorpayWebhookRoutes from './routes/razorpay-webhook.routes';
+import internalRoutes from './routes/internal.routes';
 import subscriptionRoutes from './routes/subscription.routes';
 import userSubscriptionRoutes from './routes/user-subscription.routes';
 import { registerSwagger } from './swagger';
@@ -34,6 +35,7 @@ if (config.IS_DEVELOPMENT) {
 
 app.use('/subscriptions', subscriptionRoutes);
 app.use('/me/subscriptions', userSubscriptionRoutes);
+app.use('/internal', internalRoutes);
 
 app.use(errorHandler);
 

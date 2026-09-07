@@ -1,6 +1,7 @@
 import { prisma } from '../libs/db/src/prisma';
 import { RazorpayClient } from './clients/razorpay.client';
 import { UserEntitlementClient } from './clients/user-entitlement.client';
+import { InternalSubscriptionController } from './controllers/internal-subscription.controller';
 import { RazorpayWebhookController } from './controllers/razorpay-webhook.controller';
 import { SubscriptionController } from './controllers/subscription.controller';
 import { UserSubscriptionController } from './controllers/user-subscription.controller';
@@ -34,7 +35,10 @@ const razorpayWebhookService = new RazorpayWebhookService(
  * Composition root for subscription-service dependencies.
  */
 export const container = {
+  razorpayClient,
+  subscriptionService,
   subscriptionController: new SubscriptionController(subscriptionService),
+  internalSubscriptionController: new InternalSubscriptionController(subscriptionService),
   userSubscriptionController: new UserSubscriptionController(userSubscriptionService),
   razorpayWebhookController: new RazorpayWebhookController(razorpayWebhookService),
 };

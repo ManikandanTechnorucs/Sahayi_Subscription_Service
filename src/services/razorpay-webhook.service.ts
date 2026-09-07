@@ -163,6 +163,7 @@ export class RazorpayWebhookService {
 
     const incomingStatus = this.#statusFromEvent(eventType, subscriptionEntity);
     const nextStatus = this.#chooseStatus(local.status, incomingStatus);
+    const statusChanged = nextStatus !== local.status;
 
     if (paymentEntity?.id) {
       await this.#userSubscriptionRepository.upsertPayment({
@@ -204,10 +205,14 @@ export class RazorpayWebhookService {
         nextStatus === 'cancelled' || nextStatus === 'completed' || nextStatus === 'expired'
           ? local.endedAt ?? this.#unixToDate(subscriptionEntity.ended_at) ?? new Date()
           : local.endedAt,
-      history: {
-        eventSource: 'webhook',
-        eventType,
-      },
+      ...(statusChanged
+        ? {
+            history: {
+              eventSource: 'webhook',
+              eventType,
+            },
+          }
+        : {}),
     });
 
     if (nextStatus === 'authenticated' || nextStatus === 'active') {
@@ -216,7 +221,9 @@ export class RazorpayWebhookService {
       );
 
       if (granted) {
-        await this.#userSubscriptionService.activateEntitlements(granted);
+        await this.#userSubscriptionService.activateEntitlements(granted, {
+          recordPreviousPlan: local.status === 'created',
+        });
       }
     }
   }

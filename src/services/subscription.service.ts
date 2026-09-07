@@ -100,7 +100,7 @@ export class SubscriptionService {
       throw new NotFoundError('Subscription');
     }
 
-    return updated;
+    return (await this.#syncCatalogPlan(updated, false)).plan;
   }
 
   /**
@@ -234,11 +234,21 @@ export class SubscriptionService {
       };
     }
 
+    let replaceReason: string | undefined;
+
     if (input.existingId && !input.force) {
-      return {
-        action: 'existing',
-        razorpayPlanId: input.existingId,
-      };
+      const existingPlan = await this.#razorpayClient.fetchPlan(input.existingId);
+
+      if (existingPlan && existingPlan.amount === amountPaise) {
+        return {
+          action: 'existing',
+          razorpayPlanId: existingPlan.id,
+        };
+      }
+
+      replaceReason = existingPlan
+        ? 'Stored Razorpay plan amount does not match the catalog cost'
+        : 'Stored plan id was not on this Razorpay dashboard';
     }
 
     const created = await this.#razorpayClient.createPlan({
@@ -250,6 +260,7 @@ export class SubscriptionService {
       notes: {
         localName: input.name,
         billingCycle: input.billingCycle,
+        dashboard: this.#razorpayClient.getDashboardMode(),
         ...(input.localPlanId ? { localPlanId: String(input.localPlanId) } : {}),
       },
     });
@@ -257,6 +268,7 @@ export class SubscriptionService {
     return {
       action: 'created',
       razorpayPlanId: created.id,
+      ...(replaceReason ? { reason: replaceReason } : {}),
     };
   }
 

@@ -7,6 +7,7 @@
   },
   "scripts": {
     "start": "node --use-system-ca -r ts-node/register src/server.ts",
+    "razorpay:sync-plans": "node --use-system-ca -r ts-node/register src/scripts/sync-razorpay-plans.ts",
     "prisma:generate": "node node_modules/prisma/build/index.js generate",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

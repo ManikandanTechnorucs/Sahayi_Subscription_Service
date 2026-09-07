@@ -62,9 +62,54 @@ export class RazorpayClient {
     }
   }
 
+  isConfigured(): boolean {
+    return this.#client !== null && Boolean(config.RAZORPAY_KEY_ID && config.RAZORPAY_KEY_SECRET);
+  }
+
   getKeyId(): string {
     this.#assertConfigured();
     return config.RAZORPAY_KEY_ID;
+  }
+
+  /**
+   * Razorpay account mode implied by the current key_id (UAT vs prod dashboard).
+   */
+  getDashboardMode(): 'test' | 'live' | 'unconfigured' {
+    if (!this.isConfigured()) {
+      return 'unconfigured';
+    }
+
+    if (config.RAZORPAY_KEY_ID.startsWith('rzp_test_')) {
+      return 'test';
+    }
+
+    if (config.RAZORPAY_KEY_ID.startsWith('rzp_live_')) {
+      return 'live';
+    }
+
+    return 'unconfigured';
+  }
+
+  /**
+   * Fetches a catalog plan from the Razorpay account for these keys.
+   */
+  async fetchPlan(planId: string): Promise<RazorpayPlanResult | null> {
+    const client = this.#assertConfigured();
+
+    try {
+      const fetched = await client.plans.fetch(planId);
+      return this.#mapPlan(fetched as unknown as Record<string, unknown>);
+    } catch {
+      logger.warn(
+        {
+          service: 'subscription-service',
+          planId,
+          dashboard: this.getDashboardMode(),
+        },
+        'stored razorpay plan id is not on this dashboard',
+      );
+      return null;
+    }
   }
 
   /**

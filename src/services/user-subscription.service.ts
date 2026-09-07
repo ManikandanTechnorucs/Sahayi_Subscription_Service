@@ -48,6 +48,8 @@ export class UserSubscriptionService {
     const billing = await this.#userSubscriptionRepository.findActiveByUserId(userId);
 
     if (!this.#isPaidCycle(plan, input.billingCycle)) {
+      const previousPlanId = await this.#tryGetEntitlementPlanId(userId);
+
       if (inFlight) {
         await this.#cancelQuietly(inFlight, 'Abandoned checkout cancelled for free plan change');
       }
@@ -57,6 +59,21 @@ export class UserSubscriptionService {
       }
 
       await this.#userEntitlementClient.setSubscriptionId(userId, plan.id);
+
+      if (previousPlanId !== plan.id || inFlight || billing) {
+        await this.#userSubscriptionRepository.createHistory({
+          userId,
+          planId: plan.id,
+          billingCycle: input.billingCycle,
+          eventSource: 'api_create',
+          eventType: 'plan.assigned',
+          note: billing
+            ? `Free plan assigned after cancelling paid plan ${billing.planId}`
+            : inFlight
+              ? 'Free plan assigned after abandoning checkout'
+              : 'Free plan assigned',
+        });
+      }
 
       return {
         subscriptionId: null,
@@ -168,49 +185,61 @@ export class UserSubscriptionService {
       paidAt: new Date(),
     });
 
+    const previousStatus = subscription.status;
     const nextStatus: UserSubscriptionStatus =
-      subscription.status === 'created' ? 'authenticated' : subscription.status;
+      previousStatus === 'created' ? 'authenticated' : previousStatus;
 
     const updated = await this.#userSubscriptionRepository.update(BigInt(subscription.id), {
       status: nextStatus,
       checkoutVerifiedAt: new Date(),
-      history: {
-        eventSource: 'api_verify',
-        eventType: 'checkout.verified',
-        note: `Payment ${input.razorpayPaymentId} verified`,
-      },
+      ...(nextStatus !== previousStatus
+        ? {
+            history: {
+              eventSource: 'api_verify',
+              eventType: 'checkout.verified',
+              note: `Payment ${input.razorpayPaymentId} verified`,
+            },
+          }
+        : {}),
     });
 
     if (!updated) {
       throw new NotFoundError('Subscription');
     }
 
-    await this.activateEntitlements(updated);
+    await this.activateEntitlements(updated, {
+      recordPreviousPlan: previousStatus === 'created',
+    });
 
     return updated;
   }
 
   /**
    * Cancels other live subscriptions and writes users.SubscriptionId after payment/auth.
-   * Also records the plan the user currently has in usersubscriptionhistory.
+   * Optionally records a catalog-only previous plan (e.g. default Free) before this payment.
    */
-  async activateEntitlements(subscription: UserSubscription): Promise<void> {
+  async activateEntitlements(
+    subscription: UserSubscription,
+    options?: { recordPreviousPlan?: boolean },
+  ): Promise<void> {
     if (!ENTITLEMENT_STATUSES.includes(subscription.status)) {
       return;
     }
 
-    try {
-      await this.#recordCurrentAtPayment(subscription);
-    } catch (error) {
-      logger.warn(
-        {
-          service: 'subscription-service',
-          userId: subscription.userId,
-          paidSubscriptionId: subscription.id,
-          err: error instanceof Error ? error.message : 'history write failed',
-        },
-        'current plan history write failed',
-      );
+    if (options?.recordPreviousPlan) {
+      try {
+        await this.#recordCurrentAtPayment(subscription);
+      } catch (error) {
+        logger.warn(
+          {
+            service: 'subscription-service',
+            userId: subscription.userId,
+            paidSubscriptionId: subscription.id,
+            err: error instanceof Error ? error.message : 'history write failed',
+          },
+          'current plan history write failed',
+        );
+      }
     }
 
     await this.#supersedeOthers(subscription.userId, subscription.id);
@@ -352,7 +381,8 @@ export class UserSubscriptionService {
   }
 
   /**
-   * Writes the plan the user already has before this payment takes effect.
+   * Records a catalog-only previous plan (typically Free set at registration).
+   * Paid previous plans are already written by #supersedeOthers.
    */
   async #recordCurrentAtPayment(paid: UserSubscription): Promise<void> {
     const currentBilling = await this.#userSubscriptionRepository.findActiveByUserIdExcluding(
@@ -361,37 +391,10 @@ export class UserSubscriptionService {
     );
 
     if (currentBilling) {
-      await this.#userSubscriptionRepository.createHistory({
-        userId: currentBilling.userId,
-        userSubscriptionId: BigInt(currentBilling.id),
-        planId: currentBilling.planId,
-        billingCycle: currentBilling.billingCycle,
-        fromStatus: currentBilling.status,
-        toStatus: currentBilling.status,
-        eventSource: 'api_pay',
-        eventType: 'subscription.current',
-        razorpaySubscriptionId: currentBilling.razorpaySubscriptionId,
-        note: `Current subscription at payment for ${paid.id}`,
-      });
       return;
     }
 
-    let currentPlanId: number | null;
-
-    try {
-      currentPlanId = await this.#userEntitlementClient.getSubscriptionId(paid.userId);
-    } catch (error) {
-      logger.warn(
-        {
-          service: 'subscription-service',
-          userId: paid.userId,
-          paidSubscriptionId: paid.id,
-          err: error instanceof Error ? error.message : 'entitlement lookup failed',
-        },
-        'could not load current plan for payment history',
-      );
-      return;
-    }
+    const currentPlanId = await this.#tryGetEntitlementPlanId(paid.userId);
 
     if (currentPlanId === null || currentPlanId === paid.planId) {
       return;
@@ -404,6 +407,22 @@ export class UserSubscriptionService {
       eventType: 'subscription.current',
       note: `Current plan ${currentPlanId} at payment for ${paid.id}`,
     });
+  }
+
+  async #tryGetEntitlementPlanId(userId: string): Promise<number | null> {
+    try {
+      return await this.#userEntitlementClient.getSubscriptionId(userId);
+    } catch (error) {
+      logger.warn(
+        {
+          service: 'subscription-service',
+          userId,
+          err: error instanceof Error ? error.message : 'entitlement lookup failed',
+        },
+        'could not load current plan for history',
+      );
+      return null;
+    }
   }
 
   async #cancelQuietly(subscription: UserSubscription, note: string): Promise<void> {

@@ -37,6 +37,26 @@ const getOptionalEnv = (key: string): string | undefined => {
   return stripWrappingQuotes(value);
 };
 
+const parseBooleanEnv = (key: string, fallback: boolean): boolean => {
+  const value = getOptionalEnv(key);
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const normalized = value.toLowerCase();
+
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+};
+
 const isRunningInDocker = (): boolean => existsSync('/.dockerenv');
 
 const normalizeDatabaseUrl = (databaseUrl: string): string => {
@@ -66,6 +86,16 @@ export const config = {
   RAZORPAY_WEBHOOK_SECRET: getOptionalEnv('RAZORPAY_WEBHOOK_SECRET') ?? '',
   RAZORPAY_CURRENCY: getOptionalEnv('RAZORPAY_CURRENCY') ?? 'INR',
   RAZORPAY_DEFAULT_TOTAL_COUNT: Number(getOptionalEnv('RAZORPAY_DEFAULT_TOTAL_COUNT') ?? 12),
+  /**
+   * When true, create missing Razorpay catalog plans on process start using this
+   * environment's key_id / key_secret (UAT test dashboard vs prod live dashboard).
+   */
+  RAZORPAY_SYNC_ON_STARTUP: parseBooleanEnv('RAZORPAY_SYNC_ON_STARTUP', true),
+  /**
+   * When true, create new Razorpay plans even if ids are already stored.
+   * Use when switching this environment to a different Razorpay account.
+   */
+  RAZORPAY_SYNC_FORCE: parseBooleanEnv('RAZORPAY_SYNC_FORCE', false),
   CHECKOUT_DISPLAY_NAME: getOptionalEnv('CHECKOUT_DISPLAY_NAME') ?? 'Sahayi',
   /** Local User Service by default. Set USER_SERVICE_BASE_URL to the hosted origin in deploy. */
   USER_SERVICE_BASE_URL: getOptionalEnv('USER_SERVICE_BASE_URL') ?? 'http://localhost:3005',

@@ -4,7 +4,6 @@ import { config } from '../libs/config/src/config';
 import { subscriptionServiceOpenApiDocument } from './openapi/subscription-service.openapi';
 
 const localUrl = `http://localhost:${config.SUBSCRIPTION_SERVICE_PORT}`;
-const hostedUrl = `http://${config.SWAGGER_PUBLIC_HOST}:${config.SUBSCRIPTION_SERVICE_PORT}`;
 
 const serversForRequest = (req: Request) => {
   const host = req.get('host');
@@ -12,7 +11,6 @@ const serversForRequest = (req: Request) => {
   const unique = new Map<string, string>([
     [currentUrl, 'Current environment'],
     [config.SUBSCRIPTION_SERVICE_PUBLIC_URL, 'Production'],
-    [hostedUrl, 'Hosted environment'],
     [localUrl, 'Local development'],
   ]);
 

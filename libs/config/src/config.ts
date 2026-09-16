@@ -119,8 +119,6 @@ export const config = {
   DATABASE_URL: normalizeDatabaseUrl(getRequiredEnv('DATABASE_URL')),
   JWT_SECRET: `"${getRequiredEnv('JWT_SECRET')}"`,
   SUBSCRIPTION_SERVICE_PORT: Number(process.env.SUBSCRIPTION_SERVICE_PORT ?? 3012),
-  /** Public host used in Swagger "Hosted environment" server URL */
-  SWAGGER_PUBLIC_HOST: getOptionalEnv('SWAGGER_PUBLIC_HOST') ?? '20.40.58.216',
   SUBSCRIPTION_SERVICE_PUBLIC_URL:
     getOptionalEnv('SUBSCRIPTION_SERVICE_PUBLIC_URL') ?? PRODUCTION_SUBSCRIPTION_SERVICE_PUBLIC_URL,
   RAZORPAY_KEY_ID: getOptionalEnv('RAZORPAY_KEY_ID') ?? '',

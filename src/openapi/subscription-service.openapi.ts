@@ -16,10 +16,6 @@ export const subscriptionServiceOpenApiDocument = {
       description: 'Local development',
     },
     {
-      url: 'http://20.40.58.216:3012',
-      description: 'Hosted environment',
-    },
-    {
       url: 'https://subscription.sahayii.com',
       description: 'Production',
     },

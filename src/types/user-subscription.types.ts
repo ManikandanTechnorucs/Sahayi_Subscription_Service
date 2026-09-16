@@ -2,6 +2,8 @@ import type { SubscriptionPlan } from './subscription.types';
 
 export type BillingCycle = 'monthly' | 'yearly';
 
+export type SubscriptionActivation = 'immediate' | 'period_end';
+
 export type UserSubscriptionStatus =
   | 'created'
   | 'authenticated'
@@ -37,9 +39,25 @@ export type UserSubscription = {
   cancelAtCycleEnd: boolean;
   pausedAt: Date | null;
   endedAt: Date | null;
+  replacesUserSubscriptionId: string | null;
+  scheduledStartAt: Date | null;
   createdAt: Date;
   updatedAt: Date | null;
   plan?: SubscriptionPlan;
+};
+
+export type ScheduledSubscriptionChange = {
+  id: string;
+  planId: number;
+  billingCycle: BillingCycle;
+  status: UserSubscriptionStatus;
+  scheduledStartAt: Date | null;
+  chargeAt: Date | null;
+  plan?: SubscriptionPlan;
+};
+
+export type CurrentUserSubscription = UserSubscription & {
+  scheduledChange: ScheduledSubscriptionChange | null;
 };
 
 export type CreateUserSubscriptionInput = {
@@ -63,6 +81,7 @@ export type CreateCheckoutResponse = {
   razorpaySubscriptionId: string | null;
   razorpayKeyId: string | null;
   checkoutRequired: boolean;
+  activation: SubscriptionActivation;
   status: UserSubscriptionStatus | 'none';
   plan: SubscriptionPlan;
   checkout: {

@@ -59,6 +59,12 @@ const parseBooleanEnv = (key: string, fallback: boolean): boolean => {
 
 const isRunningInDocker = (): boolean => existsSync('/.dockerenv');
 
+const nodeEnv = process.env.NODE_ENV ?? 'development';
+const isDevelopment = nodeEnv !== 'production';
+
+const PRODUCTION_USER_SERVICE_BASE_URL = 'https://user.sahayii.com';
+const PRODUCTION_SUBSCRIPTION_SERVICE_PUBLIC_URL = 'https://subscription.sahayii.com';
+
 const normalizeDatabaseUrl = (databaseUrl: string): string => {
   if (!isRunningInDocker()) {
     return databaseUrl;
@@ -73,19 +79,60 @@ const normalizeDatabaseUrl = (databaseUrl: string): string => {
   return url.toString();
 };
 
+const isLoopbackHostname = (hostname: string): boolean =>
+  hostname === 'localhost' || hostname === '127.0.0.1';
+
+/**
+ * Loopback User Service URLs work on a local process, but fail in Docker and
+ * on production hosts. Rewrite those to the reachable origin.
+ */
+const normalizeInternalServiceUrl = (serviceUrl: string, productionUrl: string): string => {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(serviceUrl);
+  } catch {
+    return serviceUrl;
+  }
+
+  if (!isLoopbackHostname(parsed.hostname)) {
+    return serviceUrl;
+  }
+
+  if (!isDevelopment) {
+    return productionUrl;
+  }
+
+  if (isRunningInDocker()) {
+    parsed.hostname = 'host.docker.internal';
+    return parsed.toString();
+  }
+
+  return serviceUrl;
+};
+
 /**
  * Shared runtime configuration loaded from environment variables.
  */
 export const config = {
-  IS_DEVELOPMENT: (process.env.NODE_ENV ?? 'development') !== 'production',
+  IS_DEVELOPMENT: isDevelopment,
   DATABASE_URL: normalizeDatabaseUrl(getRequiredEnv('DATABASE_URL')),
   JWT_SECRET: `"${getRequiredEnv('JWT_SECRET')}"`,
   SUBSCRIPTION_SERVICE_PORT: Number(process.env.SUBSCRIPTION_SERVICE_PORT ?? 3012),
+  /** Public host used in Swagger "Hosted environment" server URL */
+  SWAGGER_PUBLIC_HOST: getOptionalEnv('SWAGGER_PUBLIC_HOST') ?? '20.40.58.216',
+  SUBSCRIPTION_SERVICE_PUBLIC_URL:
+    getOptionalEnv('SUBSCRIPTION_SERVICE_PUBLIC_URL') ?? PRODUCTION_SUBSCRIPTION_SERVICE_PUBLIC_URL,
   RAZORPAY_KEY_ID: getOptionalEnv('RAZORPAY_KEY_ID') ?? '',
   RAZORPAY_KEY_SECRET: getOptionalEnv('RAZORPAY_KEY_SECRET') ?? '',
   RAZORPAY_WEBHOOK_SECRET: getOptionalEnv('RAZORPAY_WEBHOOK_SECRET') ?? '',
   RAZORPAY_CURRENCY: getOptionalEnv('RAZORPAY_CURRENCY') ?? 'INR',
   RAZORPAY_DEFAULT_TOTAL_COUNT: Number(getOptionalEnv('RAZORPAY_DEFAULT_TOTAL_COUNT') ?? 12),
+  /**
+   * Razorpay rejects start_at timestamps closer than this. Period-end changes
+   * still schedule (never forfeit now) and use now + offset when CurrentEnd is sooner.
+   */
+  RAZORPAY_MIN_START_AT_OFFSET_SEC: Number(getOptionalEnv('RAZORPAY_MIN_START_AT_OFFSET_SEC') ?? 15 * 60),
   /**
    * When true, create missing Razorpay catalog plans on process start using this
    * environment's key_id / key_secret (UAT test dashboard vs prod live dashboard).
@@ -97,7 +144,10 @@ export const config = {
    */
   RAZORPAY_SYNC_FORCE: parseBooleanEnv('RAZORPAY_SYNC_FORCE', false),
   CHECKOUT_DISPLAY_NAME: getOptionalEnv('CHECKOUT_DISPLAY_NAME') ?? 'Sahayi',
-  /** Local User Service by default. Set USER_SERVICE_BASE_URL to the hosted origin in deploy. */
-  USER_SERVICE_BASE_URL: getOptionalEnv('USER_SERVICE_BASE_URL') ?? 'http://localhost:3005',
+  USER_SERVICE_BASE_URL: normalizeInternalServiceUrl(
+    getOptionalEnv('USER_SERVICE_BASE_URL') ??
+      (isDevelopment ? 'http://localhost:3005' : PRODUCTION_USER_SERVICE_BASE_URL),
+    PRODUCTION_USER_SERVICE_BASE_URL,
+  ),
   INTERNAL_SERVICE_TOKEN: getRequiredEnv('INTERNAL_SERVICE_TOKEN'),
 };

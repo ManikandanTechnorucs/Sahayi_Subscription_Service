@@ -16,7 +16,16 @@ const SUPPORTED_EVENTS = new Set([
   'subscription.resumed',
   'subscription.cancelled',
   'subscription.completed',
+  'payment.failed',
 ]);
+
+const RECONCILE_STATUSES: UserSubscriptionStatus[] = [
+  'pending',
+  'halted',
+  'cancelled',
+  'completed',
+  'expired',
+];
 
 const STATUS_RANK: Record<UserSubscriptionStatus, number> = {
   created: 1,
@@ -92,9 +101,12 @@ export class RazorpayWebhookService {
 
     const eventType = parsed.event ?? 'unknown';
     const subscriptionEntity = parsed.payload?.subscription?.entity;
+    const paymentEntity = parsed.payload?.payment?.entity;
     const razorpaySubscriptionId = subscriptionEntity?.id
       ? String(subscriptionEntity.id)
-      : null;
+      : paymentEntity?.subscription_id
+        ? String(paymentEntity.subscription_id)
+        : null;
 
     logger.info(
       {
@@ -121,7 +133,15 @@ export class RazorpayWebhookService {
       return { duplicate: false, ignored: true };
     }
 
-    if (!razorpaySubscriptionId || !subscriptionEntity) {
+    if (!razorpaySubscriptionId) {
+      await this.#webhookEventRepository.markFailed(
+        input.eventId,
+        'Missing subscription id in webhook payload',
+      );
+      throw new BadRequestError('Missing subscription id in webhook payload');
+    }
+
+    if (!subscriptionEntity && eventType !== 'payment.failed') {
       await this.#webhookEventRepository.markFailed(
         input.eventId,
         'Missing subscription entity in webhook payload',
@@ -130,7 +150,12 @@ export class RazorpayWebhookService {
     }
 
     try {
-      await this.#applySubscriptionEvent(eventType, subscriptionEntity, parsed.payload?.payment?.entity);
+      await this.#applySubscriptionEvent(
+        eventType,
+        razorpaySubscriptionId,
+        subscriptionEntity,
+        paymentEntity,
+      );
       return { duplicate: false, ignored: false };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'webhook processing failed';
@@ -141,10 +166,10 @@ export class RazorpayWebhookService {
 
   async #applySubscriptionEvent(
     eventType: string,
-    subscriptionEntity: Record<string, unknown>,
+    razorpaySubscriptionId: string,
+    subscriptionEntity: Record<string, unknown> | undefined,
     paymentEntity?: Record<string, unknown>,
   ): Promise<void> {
-    const razorpaySubscriptionId = String(subscriptionEntity.id);
     const local = await this.#userSubscriptionRepository.findByRazorpaySubscriptionId(
       razorpaySubscriptionId,
     );
@@ -161,10 +186,6 @@ export class RazorpayWebhookService {
       return;
     }
 
-    const incomingStatus = this.#statusFromEvent(eventType, subscriptionEntity);
-    const nextStatus = this.#chooseStatus(local.status, incomingStatus);
-    const statusChanged = nextStatus !== local.status;
-
     if (paymentEntity?.id) {
       await this.#userSubscriptionRepository.upsertPayment({
         userSubscriptionId: BigInt(local.id),
@@ -178,6 +199,15 @@ export class RazorpayWebhookService {
             : new Date(),
       });
     }
+
+    if (!subscriptionEntity) {
+      await this.#userSubscriptionService.reconcilePeriodEnd(local);
+      return;
+    }
+
+    const incomingStatus = this.#statusFromEvent(eventType, subscriptionEntity);
+    const nextStatus = this.#chooseStatus(local.status, incomingStatus);
+    const statusChanged = nextStatus !== local.status;
 
     await this.#userSubscriptionRepository.update(BigInt(local.id), {
       status: nextStatus,
@@ -215,16 +245,22 @@ export class RazorpayWebhookService {
         : {}),
     });
 
-    if (nextStatus === 'authenticated' || nextStatus === 'active') {
-      const granted = await this.#userSubscriptionRepository.findByRazorpaySubscriptionId(
-        razorpaySubscriptionId,
-      );
+    const updated = await this.#userSubscriptionRepository.findByRazorpaySubscriptionId(
+      razorpaySubscriptionId,
+    );
 
-      if (granted) {
-        await this.#userSubscriptionService.activateEntitlements(granted, {
-          recordPreviousPlan: local.status === 'created',
-        });
-      }
+    if (!updated) {
+      return;
+    }
+
+    if (nextStatus === 'authenticated' || nextStatus === 'active') {
+      await this.#userSubscriptionService.activateEntitlements(updated, {
+        recordPreviousPlan: local.status === 'created',
+      });
+    }
+
+    if (RECONCILE_STATUSES.includes(nextStatus) || eventType === 'payment.failed') {
+      await this.#userSubscriptionService.reconcilePeriodEnd(updated);
     }
   }
 

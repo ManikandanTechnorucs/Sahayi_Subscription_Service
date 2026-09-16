@@ -74,6 +74,8 @@ type UserSubscriptionRow = {
   CancelAtCycleEnd: boolean;
   PausedAt: Date | null;
   EndedAt: Date | null;
+  ReplacesUserSubscriptionId: bigint | null;
+  ScheduledStartAt: Date | null;
   CreatedAt: Date;
   UpdatedAt: Date | null;
   plan?: PlanRow;
@@ -99,6 +101,8 @@ export type CreateUserSubscriptionRecordInput = {
   currentStart?: Date | null;
   currentEnd?: Date | null;
   chargeAt?: Date | null;
+  replacesUserSubscriptionId?: bigint | null;
+  scheduledStartAt?: Date | null;
   history?: {
     eventSource: string;
     eventType?: string | null;
@@ -119,6 +123,8 @@ export type UpdateUserSubscriptionRecordInput = {
   cancelAtCycleEnd?: boolean;
   pausedAt?: Date | null;
   endedAt?: Date | null;
+  replacesUserSubscriptionId?: bigint | null;
+  scheduledStartAt?: Date | null;
   history?: {
     eventSource: string;
     eventType?: string | null;
@@ -146,6 +152,8 @@ const BILLING_STATUSES: UserSubscriptionStatus[] = [
   'halted',
   'paused',
 ];
+
+const SCHEDULED_STATUSES: UserSubscriptionStatus[] = BILLING_STATUSES;
 
 const NON_TERMINAL_STATUSES: UserSubscriptionStatus[] = [
   'created',
@@ -176,6 +184,7 @@ export class UserSubscriptionRepository {
       where: {
         UserId: userId,
         Status: { in: BILLING_STATUSES },
+        ReplacesUserSubscriptionId: null,
       },
       orderBy: { CreatedAt: 'desc' },
       include: { plan: { select: planSelect } },
@@ -192,6 +201,7 @@ export class UserSubscriptionRepository {
       where: {
         UserId: userId,
         Status: { in: BILLING_STATUSES },
+        ReplacesUserSubscriptionId: null,
         Id: { not: excludeId },
       },
       orderBy: { CreatedAt: 'desc' },
@@ -199,6 +209,53 @@ export class UserSubscriptionRepository {
     });
 
     return row ? this.#mapUserSubscription(row) : null;
+  }
+
+  async findScheduledByUserId(userId: string): Promise<UserSubscription | null> {
+    const row = await this.#prisma.userSubscription.findFirst({
+      where: {
+        UserId: userId,
+        ReplacesUserSubscriptionId: { not: null },
+        Status: { in: SCHEDULED_STATUSES },
+      },
+      orderBy: { CreatedAt: 'desc' },
+      include: { plan: { select: planSelect } },
+    });
+
+    return row ? this.#mapUserSubscription(row) : null;
+  }
+
+  async findById(id: bigint): Promise<UserSubscription | null> {
+    const row = await this.#prisma.userSubscription.findUnique({
+      where: { Id: id },
+      include: { plan: { select: planSelect } },
+    });
+
+    return row ? this.#mapUserSubscription(row) : null;
+  }
+
+  async findFreeCatalogPlan(): Promise<CatalogPlanWithRazorpay | null> {
+    const freeByName = await this.#prisma.subscriptionmaster.findFirst({
+      where: { IsActive: true, Name: 'Free' },
+      select: planSelect,
+    });
+
+    if (freeByName) {
+      return this.#mapCatalogPlan(freeByName);
+    }
+
+    const rows = await this.#prisma.subscriptionmaster.findMany({
+      where: { IsActive: true },
+      select: planSelect,
+    });
+
+    const free = rows.find((row) => {
+      const monthly = Number(row.MonthlyCost);
+      const yearly = Number(row.yearlyCost);
+      return monthly === 0 && yearly === 0;
+    });
+
+    return free ? this.#mapCatalogPlan(free) : null;
   }
 
   async findCreatedByUserId(userId: string): Promise<UserSubscription | null> {
@@ -265,6 +322,8 @@ export class UserSubscriptionRepository {
           CurrentStart: input.currentStart ?? null,
           CurrentEnd: input.currentEnd ?? null,
           ChargeAt: input.chargeAt ?? null,
+          ReplacesUserSubscriptionId: input.replacesUserSubscriptionId ?? null,
+          ScheduledStartAt: input.scheduledStartAt ?? null,
         },
         include: { plan: { select: planSelect } },
       });
@@ -352,6 +411,14 @@ export class UserSubscriptionRepository {
 
     if (input.endedAt !== undefined) {
       data.EndedAt = input.endedAt;
+    }
+
+    if (input.replacesUserSubscriptionId !== undefined) {
+      data.ReplacesUserSubscriptionId = input.replacesUserSubscriptionId;
+    }
+
+    if (input.scheduledStartAt !== undefined) {
+      data.ScheduledStartAt = input.scheduledStartAt;
     }
 
     const statusChanged =
@@ -478,6 +545,10 @@ export class UserSubscriptionRepository {
       cancelAtCycleEnd: row.CancelAtCycleEnd,
       pausedAt: row.PausedAt,
       endedAt: row.EndedAt,
+      replacesUserSubscriptionId: row.ReplacesUserSubscriptionId
+        ? row.ReplacesUserSubscriptionId.toString()
+        : null,
+      scheduledStartAt: row.ScheduledStartAt,
       createdAt: row.CreatedAt,
       updatedAt: row.UpdatedAt,
     };

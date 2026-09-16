@@ -89,6 +89,8 @@ model UserSubscription {
   CancelAtCycleEnd       Boolean                @default(false)
   PausedAt               DateTime?              @db.DateTime(0)
   EndedAt                DateTime?              @db.DateTime(0)
+  ReplacesUserSubscriptionId BigInt?
+  ScheduledStartAt       DateTime?              @db.DateTime(0)
   CreatedAt              DateTime               @default(now()) @db.DateTime(0)
   UpdatedAt              DateTime?              @db.DateTime(0)
 
@@ -97,6 +99,7 @@ model UserSubscription {
   history  UserSubscriptionHistory[]
 
   @@index([UserId, Status], map: "IX_UserSubscription_UserId_Status")
+  @@index([ReplacesUserSubscriptionId], map: "IX_UserSubscription_ReplacesUserSubscriptionId")
   @@map("user_subscriptions")
 }
 

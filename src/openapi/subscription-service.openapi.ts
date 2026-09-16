@@ -12,8 +12,16 @@ export const subscriptionServiceOpenApiDocument = {
   },
   servers: [
     {
-      url: 'http://localhost:3007',
+      url: 'http://localhost:3012',
       description: 'Local development',
+    },
+    {
+      url: 'http://20.40.58.216:3012',
+      description: 'Hosted environment',
+    },
+    {
+      url: 'https://subscription.sahayii.com',
+      description: 'Production',
     },
   ],
   tags: [
@@ -404,7 +412,7 @@ export const subscriptionServiceOpenApiDocument = {
         tags: ['My Subscriptions'],
         summary: 'Create Razorpay subscription and checkout params',
         description:
-          'Creates a Razorpay subscription for a paid plan and returns native Checkout parameters. Reuses an unfinished checkout for the same plan, or creates a replacement checkout when changing plans. Free plans skip Razorpay and update entitlements immediately. Does not activate a paid plan until checkout is verified.',
+          'Creates a Razorpay subscription for a paid plan and returns native Checkout parameters. Same-cycle upgrades forfeit the current plan after payment. Downgrades, same-plan cycle switches, and Free wait until the current period ends: card/mandate is collected now, first charge (or Free fallback) happens via webhook. Reuses an unfinished checkout for the same plan. A second period-end change is rejected while one is already scheduled; a verified upgrade can override it.',
         operationId: 'createUserSubscription',
         security: [{ bearerAuth: [] }],
         requestBody: {
@@ -456,7 +464,7 @@ export const subscriptionServiceOpenApiDocument = {
         tags: ['My Subscriptions'],
         summary: 'Verify checkout payment signature',
         description:
-          'Server-side verification of Razorpay checkout response. Marks checkout verified, cancels the previous paid subscription if one exists, and updates user entitlements.',
+          'Server-side verification of Razorpay checkout response. Immediate upgrades cancel the previous paid subscription and update entitlements now. Period-end replacements store the mandate, cancel the current plan at cycle end, and wait for webhook charge before changing entitlements.',
         operationId: 'verifyUserSubscriptionCheckout',
         security: [{ bearerAuth: [] }],
         requestBody: {
@@ -515,6 +523,8 @@ export const subscriptionServiceOpenApiDocument = {
       get: {
         tags: ['My Subscriptions'],
         summary: 'Get current user subscription',
+        description:
+          'Returns the entitlement-granting subscription plus scheduledChange when a period-end downgrade or cycle switch is waiting. currentEnd is an ISO datetime; clients should display date only.',
         operationId: 'getCurrentUserSubscription',
         security: [{ bearerAuth: [] }],
         responses: {
@@ -522,7 +532,7 @@ export const subscriptionServiceOpenApiDocument = {
             description: 'Current subscription or NO_DATA_FOUND',
             content: {
               'application/json': {
-                schema: { $ref: '#/components/schemas/UserSubscriptionResponse' },
+                schema: { $ref: '#/components/schemas/CurrentUserSubscriptionResponse' },
               },
             },
           },
@@ -583,6 +593,8 @@ export const subscriptionServiceOpenApiDocument = {
       post: {
         tags: ['My Subscriptions'],
         summary: 'Cancel user subscription',
+        description:
+          'Cancels a live Razorpay subscription. If the id is a scheduled period-end replacement, it is cancelled immediately and the current plan continues until period end, then Free. Immediate cancel of the current plan assigns Free now; cancelAtCycleEnd waits for the webhook.',
         operationId: 'cancelUserSubscription',
         security: [{ bearerAuth: [] }],
         parameters: [
@@ -1129,6 +1141,8 @@ export const subscriptionServiceOpenApiDocument = {
           cancelAtCycleEnd: { type: 'boolean' },
           pausedAt: { type: 'string', format: 'date-time', nullable: true },
           endedAt: { type: 'string', format: 'date-time', nullable: true },
+          replacesUserSubscriptionId: { type: 'string', nullable: true },
+          scheduledStartAt: { type: 'string', format: 'date-time', nullable: true },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time', nullable: true },
           plan: { $ref: '#/components/schemas/SubscriptionPlan' },
@@ -1141,6 +1155,7 @@ export const subscriptionServiceOpenApiDocument = {
           'razorpaySubscriptionId',
           'razorpayKeyId',
           'checkoutRequired',
+          'activation',
           'status',
           'plan',
           'checkout',
@@ -1150,6 +1165,12 @@ export const subscriptionServiceOpenApiDocument = {
           razorpaySubscriptionId: { type: 'string', nullable: true },
           razorpayKeyId: { type: 'string', nullable: true, description: 'Public Razorpay key id only' },
           checkoutRequired: { type: 'boolean' },
+          activation: {
+            type: 'string',
+            enum: ['immediate', 'period_end'],
+            description:
+              'immediate: entitlements switch after verify. period_end: current plan continues until currentEnd.',
+          },
           status: { type: 'string' },
           plan: { $ref: '#/components/schemas/SubscriptionPlan' },
           checkout: {
@@ -1190,6 +1211,46 @@ export const subscriptionServiceOpenApiDocument = {
           code: { oneOf: [{ type: 'integer' }, { type: 'string' }] },
           message: { type: 'string' },
           data: { $ref: '#/components/schemas/UserSubscription' },
+        },
+      },
+      ScheduledSubscriptionChange: {
+        type: 'object',
+        required: ['id', 'planId', 'billingCycle', 'status'],
+        properties: {
+          id: { type: 'string' },
+          planId: { type: 'integer' },
+          billingCycle: { type: 'string', enum: ['monthly', 'yearly'] },
+          status: { type: 'string' },
+          scheduledStartAt: { type: 'string', format: 'date-time', nullable: true },
+          chargeAt: { type: 'string', format: 'date-time', nullable: true },
+          plan: { $ref: '#/components/schemas/SubscriptionPlan' },
+        },
+      },
+      CurrentUserSubscription: {
+        allOf: [
+          { $ref: '#/components/schemas/UserSubscription' },
+          {
+            type: 'object',
+            required: ['scheduledChange'],
+            properties: {
+              scheduledChange: {
+                oneOf: [
+                  { $ref: '#/components/schemas/ScheduledSubscriptionChange' },
+                  { type: 'null' },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      CurrentUserSubscriptionResponse: {
+        type: 'object',
+        required: ['success', 'code', 'message'],
+        properties: {
+          success: { type: 'boolean' },
+          code: { oneOf: [{ type: 'integer' }, { type: 'string' }] },
+          message: { type: 'string' },
+          data: { $ref: '#/components/schemas/CurrentUserSubscription' },
         },
       },
       UserSubscriptionUpdatedResponse: {

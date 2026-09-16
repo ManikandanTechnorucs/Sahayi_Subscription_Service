@@ -27,6 +27,7 @@ export type CreateRazorpaySubscriptionInput = {
   planId: string;
   totalCount: number;
   quantity?: number;
+  startAt?: number | null;
   notes?: Record<string, string>;
 };
 
@@ -151,6 +152,7 @@ export class RazorpayClient {
         quantity: input.quantity ?? 1,
         customer_notify: 1,
         notes: input.notes ?? {},
+        ...(input.startAt ? { start_at: input.startAt } : {}),
       });
 
       return this.#mapSubscription(created as unknown as Record<string, unknown>);

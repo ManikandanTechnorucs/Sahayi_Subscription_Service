@@ -94,12 +94,24 @@ export class UserSubscriptionService {
     if (
       billing &&
       billing.planId === input.planId &&
-      billing.billingCycle === input.billingCycle
+      billing.billingCycle === input.billingCycle &&
+      !billing.cancelAtCycleEnd
     ) {
-      throw new ConflictError('User already has this subscription');
+      return this.#toExistingResponse(billing, plan, 'immediate');
     }
 
     if (scheduled && activation === 'period_end') {
+      if (
+        scheduled.planId === input.planId &&
+        scheduled.billingCycle === input.billingCycle
+      ) {
+        if (scheduled.status === 'created') {
+          return this.#toCheckoutResponse(scheduled, plan, 'period_end');
+        }
+
+        return this.#toExistingResponse(scheduled, plan, 'period_end');
+      }
+
       throw new ConflictError('A plan change is already scheduled for the end of the current period');
     }
 
@@ -237,9 +249,21 @@ export class UserSubscriptionService {
       return updated;
     }
 
-    await this.activateEntitlements(updated, {
-      recordPreviousPlan: previousStatus === 'created',
-    });
+    try {
+      await this.activateEntitlements(updated, {
+        recordPreviousPlan: previousStatus === 'created',
+      });
+    } catch (error) {
+      logger.warn(
+        {
+          service: 'subscription-service',
+          userId,
+          subscriptionId: updated.id,
+          err: error instanceof Error ? error.message : 'entitlement activation failed',
+        },
+        'checkout verified but entitlement sync failed; webhook will retry',
+      );
+    }
 
     return updated;
   }
@@ -277,8 +301,8 @@ export class UserSubscriptionService {
       }
     }
 
-    await this.#supersedeOthers(subscription.userId, subscription.id);
     await this.#userEntitlementClient.setSubscriptionId(subscription.userId, subscription.planId);
+    await this.#supersedeOthers(subscription.userId, subscription.id);
 
     if (subscription.replacesUserSubscriptionId) {
       await this.#userSubscriptionRepository.update(BigInt(subscription.id), {
@@ -363,20 +387,38 @@ export class UserSubscriptionService {
   async cancel(
     userId: string,
     subscriptionId: string,
-    input: CancelUserSubscriptionInput,
+    _input: CancelUserSubscriptionInput,
   ): Promise<UserSubscription> {
     const subscription = await this.getById(userId, subscriptionId);
     this.#assertMutable(subscription);
 
     const isScheduledReplacement = Boolean(subscription.replacesUserSubscriptionId);
-    const cancelAtCycleEnd = isScheduledReplacement ? false : (input.cancelAtCycleEnd ?? false);
+    const cancelAtCycleEnd = !isScheduledReplacement;
+
+    if (!isScheduledReplacement && subscription.cancelAtCycleEnd) {
+      return subscription;
+    }
+
+    if (!isScheduledReplacement) {
+      const inFlight = await this.#userSubscriptionRepository.findCreatedByUserId(userId);
+
+      if (inFlight && inFlight.id !== subscription.id) {
+        await this.#cancelQuietly(inFlight, 'Abandoned checkout cancelled before period-end cancel');
+      }
+    }
+
     const razorpayResult = await this.#razorpayClient.cancelSubscription(
       subscription.razorpaySubscriptionId,
       cancelAtCycleEnd,
     );
+    const mapped = this.#mapRazorpayStatus(razorpayResult.status);
+    const nextStatus =
+      cancelAtCycleEnd && TERMINAL_STATUSES.includes(mapped)
+        ? subscription.status
+        : mapped;
 
     const updated = await this.#userSubscriptionRepository.update(BigInt(subscription.id), {
-      status: this.#mapRazorpayStatus(razorpayResult.status),
+      status: nextStatus,
       cancelAtCycleEnd,
       cancelledAt: new Date(),
       endedAt: cancelAtCycleEnd ? null : new Date(),
@@ -408,6 +450,33 @@ export class UserSubscriptionService {
     }
 
     return updated;
+  }
+
+  /**
+   * Razorpay cannot un-cancel cancel_at_cycle_end, so undo creates a same-plan
+   * continuation that starts when the current period ends.
+   */
+  async undoCancel(userId: string, subscriptionId: string): Promise<CreateCheckoutResponse> {
+    const subscription = await this.getById(userId, subscriptionId);
+
+    if (subscription.replacesUserSubscriptionId) {
+      throw new BadRequestError('Undo cancel applies to the current plan, not a scheduled change');
+    }
+
+    if (!subscription.cancelAtCycleEnd) {
+      throw new BadRequestError('This subscription is not scheduled to cancel');
+    }
+
+    if (!subscription.currentEnd) {
+      throw new BadRequestError('Cannot restore this subscription without a period end date');
+    }
+
+    this.#assertMutable(subscription);
+
+    return this.createSubscription(userId, {
+      planId: subscription.planId,
+      billingCycle: subscription.billingCycle,
+    });
   }
 
   async pause(userId: string, subscriptionId: string): Promise<UserSubscription> {
@@ -671,7 +740,12 @@ export class UserSubscriptionService {
     }
 
     await this.#userSubscriptionRepository.update(BigInt(subscription.id), {
-      status: razorpayResult ? this.#mapRazorpayStatus(razorpayResult.status) : subscription.status,
+      status: razorpayResult
+        ? this.#keepLiveStatusIfCycleEnd(
+            this.#mapRazorpayStatus(razorpayResult.status),
+            subscription.status,
+          )
+        : subscription.status,
       cancelAtCycleEnd: true,
       cancelledAt: new Date(),
       endedAt: null,
@@ -741,6 +815,7 @@ export class UserSubscriptionService {
         planId: billing.planId,
         billingCycle: billing.billingCycle,
         currentEnd: billing.currentEnd,
+        cancelAtCycleEnd: billing.cancelAtCycleEnd,
         costs,
       },
       {
@@ -750,6 +825,17 @@ export class UserSubscriptionService {
         isPaid,
       },
     );
+  }
+
+  #keepLiveStatusIfCycleEnd(
+    mapped: UserSubscriptionStatus,
+    current: UserSubscriptionStatus,
+  ): UserSubscriptionStatus {
+    if (TERMINAL_STATUSES.includes(mapped)) {
+      return current;
+    }
+
+    return mapped;
   }
 
   #hasRemainingPaidPeriod(subscription: UserSubscription): boolean {
@@ -779,6 +865,23 @@ export class UserSubscriptionService {
     }
 
     return change;
+  }
+
+  #toExistingResponse(
+    subscription: UserSubscription,
+    plan: CatalogPlanWithRazorpay,
+    activation: SubscriptionActivation,
+  ): CreateCheckoutResponse {
+    return {
+      subscriptionId: subscription.id,
+      razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+      razorpayKeyId: null,
+      checkoutRequired: false,
+      activation,
+      status: subscription.status,
+      plan,
+      checkout: null,
+    };
   }
 
   #toCheckoutResponse(

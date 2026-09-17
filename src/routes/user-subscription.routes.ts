@@ -13,6 +13,7 @@ import {
   getUserSubscriptionSchema,
   pauseUserSubscriptionSchema,
   resumeUserSubscriptionSchema,
+  undoCancelUserSubscriptionSchema,
   verifyUserSubscriptionSchema,
 } from '../validators/user-subscription.validator';
 
@@ -56,6 +57,14 @@ router.post(
   requireAccessToken,
   validate(cancelUserSubscriptionSchema),
   asAuthenticatedHandler(container.userSubscriptionController.cancel),
+);
+
+router.post(
+  '/:id/undo-cancel',
+  authMiddleware,
+  requireAccessToken,
+  validate(undoCancelUserSubscriptionSchema),
+  asAuthenticatedHandler(container.userSubscriptionController.undoCancel),
 );
 
 router.post(

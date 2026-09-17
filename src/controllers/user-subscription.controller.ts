@@ -22,6 +22,7 @@ export class UserSubscriptionController {
     this.getCurrent = this.getCurrent.bind(this);
     this.getById = this.getById.bind(this);
     this.cancel = this.cancel.bind(this);
+    this.undoCancel = this.undoCancel.bind(this);
     this.pause = this.pause.bind(this);
     this.resume = this.resume.bind(this);
   }
@@ -158,6 +159,34 @@ export class UserSubscriptionController {
 
       res.status(200).json({
         ...response.DATA_UPDATED,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async undoCancel(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      logger.info(
+        {
+          service: 'subscription-service',
+          requestId: req.headers['x-request-id'],
+          userId: req.user.id,
+          method: req.method,
+          path: req.path,
+          subscriptionId: req.params.id,
+        },
+        'undo cancel user subscription request received',
+      );
+
+      const data = await this.#userSubscriptionService.undoCancel(
+        req.user.id,
+        req.params.id as string,
+      );
+
+      res.status(201).json({
+        ...response.DATA_SAVED,
         data,
       });
     } catch (error) {

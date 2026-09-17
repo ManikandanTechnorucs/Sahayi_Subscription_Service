@@ -11,6 +11,7 @@ export type CurrentChangeSnapshot = {
   planId: number;
   billingCycle: BillingCycle;
   currentEnd: Date | null;
+  cancelAtCycleEnd?: boolean;
   costs: CatalogCycleCosts;
 };
 
@@ -31,6 +32,14 @@ export function catalogCyclePrice(costs: CatalogCycleCosts, billingCycle: Billin
 }
 
 /**
+ * Plan-tier comparison uses monthly catalog cost, not the selected cycle invoice.
+ */
+export function catalogMonthlyPrice(costs: CatalogCycleCosts): number {
+  const amount = Number(costs.monthlyCost);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+/**
  * Paid cycles have a catalog price greater than zero.
  */
 export function isPaidCatalogCycle(costs: CatalogCycleCosts, billingCycle: BillingCycle): boolean {
@@ -38,8 +47,8 @@ export function isPaidCatalogCycle(costs: CatalogCycleCosts, billingCycle: Billi
 }
 
 /**
- * Upgrade (same cycle, higher price) is immediate.
- * Downgrade, Free, and same-plan cycle switches wait until period end.
+ * Upgrade (higher monthly catalog cost) is immediate and forfeits the current period.
+ * Downgrade, Free, same-plan cycle switches, and undo-cancel continuations wait until period end.
  * Missing CurrentEnd falls back to immediate.
  */
 export function resolveSubscriptionActivation(
@@ -58,14 +67,18 @@ export function resolveSubscriptionActivation(
     return 'period_end';
   }
 
+  if (current.planId === target.planId && current.billingCycle === target.billingCycle) {
+    return current.cancelAtCycleEnd ? 'period_end' : 'immediate';
+  }
+
   if (current.planId === target.planId && current.billingCycle !== target.billingCycle) {
     return 'period_end';
   }
 
-  const currentPrice = catalogCyclePrice(current.costs, current.billingCycle);
-  const targetPrice = catalogCyclePrice(target.costs, target.billingCycle);
+  const currentMonthly = catalogMonthlyPrice(current.costs);
+  const targetMonthly = catalogMonthlyPrice(target.costs);
 
-  if (targetPrice > currentPrice) {
+  if (targetMonthly > currentMonthly) {
     return 'immediate';
   }
 

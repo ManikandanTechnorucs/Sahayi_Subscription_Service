@@ -83,10 +83,12 @@ const isLoopbackHostname = (hostname: string): boolean =>
   hostname === 'localhost' || hostname === '127.0.0.1';
 
 /**
- * Loopback User Service URLs work on a local process, but fail in Docker and
- * on production hosts. Rewrite those to the reachable origin.
+ * Loopback User Service URLs work on the same host (local process or co-located
+ * VM). Rewrite only inside Docker, where localhost is the container itself.
+ * Never rewrite production loopback to the public hostname — that hairpin/IPv6
+ * fetch often fails after payment as "fetch failed".
  */
-const normalizeInternalServiceUrl = (serviceUrl: string, productionUrl: string): string => {
+const normalizeInternalServiceUrl = (serviceUrl: string): string => {
   let parsed: URL;
 
   try {
@@ -99,12 +101,13 @@ const normalizeInternalServiceUrl = (serviceUrl: string, productionUrl: string):
     return serviceUrl;
   }
 
-  if (!isDevelopment) {
-    return productionUrl;
-  }
-
   if (isRunningInDocker()) {
     parsed.hostname = 'host.docker.internal';
+    return parsed.toString();
+  }
+
+  if (parsed.hostname === 'localhost') {
+    parsed.hostname = '127.0.0.1';
     return parsed.toString();
   }
 
@@ -144,8 +147,7 @@ export const config = {
   CHECKOUT_DISPLAY_NAME: getOptionalEnv('CHECKOUT_DISPLAY_NAME') ?? 'Sahayi',
   USER_SERVICE_BASE_URL: normalizeInternalServiceUrl(
     getOptionalEnv('USER_SERVICE_BASE_URL') ??
-      (isDevelopment ? 'http://localhost:3005' : PRODUCTION_USER_SERVICE_BASE_URL),
-    PRODUCTION_USER_SERVICE_BASE_URL,
+      (isDevelopment ? 'http://127.0.0.1:3005' : PRODUCTION_USER_SERVICE_BASE_URL),
   ),
   INTERNAL_SERVICE_TOKEN: getRequiredEnv('INTERNAL_SERVICE_TOKEN'),
 };

@@ -408,7 +408,7 @@ export const subscriptionServiceOpenApiDocument = {
         tags: ['My Subscriptions'],
         summary: 'Create Razorpay subscription and checkout params',
         description:
-          'Creates a Razorpay subscription for a paid plan and returns native Checkout parameters. Same-cycle upgrades forfeit the current plan after payment. Downgrades, same-plan cycle switches, and Free wait until the current period ends: card/mandate is collected now, first charge (or Free fallback) happens via webhook. Reuses an unfinished checkout for the same plan. A second period-end change is rejected while one is already scheduled; a verified upgrade can override it.',
+          'Creates a Razorpay subscription for a paid plan and returns native Checkout parameters. Different-plan upgrades are decided by monthly catalog cost: a higher monthlyCost forfeits the current plan after payment. Downgrades, same-plan cycle switches, Free, and undo-cancel continuations wait until the current period ends: card/mandate is collected now, first charge (or Free fallback) happens via webhook. Reuses an unfinished checkout for the same plan. If the user already has this live plan and it is not cancelling at period end, returns checkoutRequired=false. A different period-end change is rejected while one is already scheduled; a verified upgrade can override it.',
         operationId: 'createUserSubscription',
         security: [{ bearerAuth: [] }],
         requestBody: {
@@ -445,7 +445,7 @@ export const subscriptionServiceOpenApiDocument = {
             },
           },
           '409': {
-            description: 'User already has this paid subscription',
+            description: 'A different plan change is already scheduled for period end',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' },
@@ -460,7 +460,7 @@ export const subscriptionServiceOpenApiDocument = {
         tags: ['My Subscriptions'],
         summary: 'Verify checkout payment signature',
         description:
-          'Server-side verification of Razorpay checkout response. Immediate upgrades cancel the previous paid subscription and update entitlements now. Period-end replacements store the mandate, cancel the current plan at cycle end, and wait for webhook charge before changing entitlements.',
+          'Server-side verification of Razorpay checkout response. Immediate upgrades cancel the previous paid subscription and update entitlements now. Period-end replacements store the mandate, cancel the current plan at cycle end, and wait for webhook charge before changing entitlements. Payment verification succeeds even if User Service entitlement sync is temporarily unreachable; webhooks retry that sync.',
         operationId: 'verifyUserSubscriptionCheckout',
         security: [{ bearerAuth: [] }],
         requestBody: {
@@ -590,7 +590,7 @@ export const subscriptionServiceOpenApiDocument = {
         tags: ['My Subscriptions'],
         summary: 'Cancel user subscription',
         description:
-          'Cancels a live Razorpay subscription. If the id is a scheduled period-end replacement, it is cancelled immediately and the current plan continues until period end, then Free. Immediate cancel of the current plan assigns Free now; cancelAtCycleEnd waits for the webhook.',
+          'Cancels a live Razorpay subscription. If the id is a scheduled period-end replacement, it is cancelled immediately and the current plan continues until period end, then Free. Cancelling the current paid plan always waits until period end, then Free. Razorpay cancel_at_cycle_end cannot be reversed; use POST /me/subscriptions/{id}/undo-cancel to authorize a same-plan continuation.',
         operationId: 'cancelUserSubscription',
         security: [{ bearerAuth: [] }],
         parameters: [
@@ -618,6 +618,14 @@ export const subscriptionServiceOpenApiDocument = {
               },
             },
           },
+          '400': {
+            description: 'Subscription is already terminal',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
           '401': {
             description: 'Unauthorized',
             content: {
@@ -628,6 +636,66 @@ export const subscriptionServiceOpenApiDocument = {
           },
           '404': {
             description: 'Not found',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/me/subscriptions/{id}/undo-cancel': {
+      post: {
+        tags: ['My Subscriptions'],
+        summary: 'Undo period-end cancel',
+        description:
+          'Creates a same-plan Razorpay continuation that starts at the current period end. Required because Razorpay cannot un-cancel cancel_at_cycle_end. Returns checkout parameters like POST /me/subscriptions. After verify, the current plan still ends at currentEnd and the continuation becomes current on first charge.',
+        operationId: 'undoCancelUserSubscription',
+        security: [{ bearerAuth: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', pattern: '^\\d+$' },
+          },
+        ],
+        responses: {
+          '201': {
+            description: 'Continuation checkout created',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/CreateCheckoutResponseEnvelope' },
+              },
+            },
+          },
+          '400': {
+            description: 'Subscription is not scheduled to cancel, or is a scheduled replacement',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '401': {
+            description: 'Unauthorized',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '404': {
+            description: 'Not found',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '409': {
+            description: 'A different plan change is already scheduled for period end',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/ErrorResponse' },
@@ -1084,7 +1152,11 @@ export const subscriptionServiceOpenApiDocument = {
         type: 'object',
         additionalProperties: false,
         properties: {
-          cancelAtCycleEnd: { type: 'boolean', default: false },
+          cancelAtCycleEnd: {
+            type: 'boolean',
+            description:
+              'Ignored for the current paid plan, which always cancels at period end. Scheduled replacements are always cancelled immediately.',
+          },
         },
       },
       UserSubscription: {
@@ -1165,7 +1237,7 @@ export const subscriptionServiceOpenApiDocument = {
             type: 'string',
             enum: ['immediate', 'period_end'],
             description:
-              'immediate: entitlements switch after verify. period_end: current plan continues until currentEnd.',
+              'immediate: entitlements switch after verify (higher monthlyCost upgrade). period_end: current plan continues until currentEnd.',
           },
           status: { type: 'string' },
           plan: { $ref: '#/components/schemas/SubscriptionPlan' },

@@ -31,7 +31,7 @@ export const registerSwagger = (app: Express): void => {
   app.use(
     '/api-docs',
     swaggerUi.serve,
-    swaggerUi.setup(undefined, {
+    swaggerUi.setup(subscriptionServiceOpenApiDocument, {
       swaggerOptions: {
         url: '/api-docs/openapi.json',
       },

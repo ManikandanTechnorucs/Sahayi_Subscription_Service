@@ -56,6 +56,11 @@ export const cancelUserSubscriptionSchema = {
   body: cancelUserSubscriptionBodySchema,
 };
 
+export const undoCancelUserSubscriptionSchema = {
+  headers: bearerAuthHeadersSchema,
+  params: userSubscriptionIdParamsSchema,
+};
+
 export const pauseUserSubscriptionSchema = {
   headers: bearerAuthHeadersSchema,
   params: userSubscriptionIdParamsSchema,

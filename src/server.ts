@@ -1,3 +1,5 @@
+import { shutdownTelemetry } from './telemetry/azure-monitor';
+import type { Server } from 'node:http';
 import dns from 'node:dns';
 import app from './app';
 import { config } from '../libs/config/src/config';
@@ -7,7 +9,7 @@ import { runRazorpayCatalogSync } from './jobs/razorpay-catalog-sync.job';
 
 dns.setDefaultResultOrder('ipv4first');
 
-app.listen(config.SUBSCRIPTION_SERVICE_PORT, '0.0.0.0', () => {
+const server: Server = app.listen(config.SUBSCRIPTION_SERVICE_PORT, '0.0.0.0', () => {
   logger.info(
     {
       port: config.SUBSCRIPTION_SERVICE_PORT,
@@ -33,4 +35,24 @@ app.listen(config.SUBSCRIPTION_SERVICE_PORT, '0.0.0.0', () => {
       );
     },
   );
+});
+
+async function shutdown(signal: string): Promise<void> {
+  logger.info({ signal }, 'Shutting down subscription service');
+
+  server.close(async () => {
+    try {
+      await shutdownTelemetry();
+    } catch (err) {
+      logger.error({ err }, 'Error shutting down Azure Monitor telemetry');
+    }
+    process.exit(0);
+  });
+}
+
+process.on('SIGINT', () => {
+  void shutdown('SIGINT');
+});
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM');
 });

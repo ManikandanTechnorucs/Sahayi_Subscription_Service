@@ -150,4 +150,6 @@ export const config = {
       (isDevelopment ? 'http://127.0.0.1:3005' : PRODUCTION_USER_SERVICE_BASE_URL),
   ),
   INTERNAL_SERVICE_TOKEN: getRequiredEnv('INTERNAL_SERVICE_TOKEN'),
+  /** Azure Application Insights / Monitor connection string (optional; telemetry disabled when unset) */
+  APPLICATIONINSIGHTS_CONNECTION_STRING: getOptionalEnv('APPLICATIONINSIGHTS_CONNECTION_STRING'),
 };

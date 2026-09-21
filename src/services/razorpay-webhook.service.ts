@@ -1,10 +1,11 @@
+import { createHash } from 'node:crypto';
 import { logger } from '../../libs/logger/src/logger';
 import type { RazorpayClient } from '../clients/razorpay.client';
-import { BadRequestError, UnauthorizedError } from '../errors/app-error';
+import { UnauthorizedError } from '../errors/app-error';
 import type { UserSubscriptionRepository } from '../repositories/user-subscription.repository';
 import type { WebhookEventRepository } from '../repositories/webhook-event.repository';
 import type { UserSubscriptionService } from './user-subscription.service';
-import type { UserSubscriptionStatus } from '../types/user-subscription.types';
+import type { UserSubscription, UserSubscriptionStatus } from '../types/user-subscription.types';
 
 const SUPPORTED_EVENTS = new Set([
   'subscription.authenticated',
@@ -52,7 +53,8 @@ type RazorpayWebhookPayload = {
 };
 
 /**
- * Processes Razorpay subscription webhooks (signature + idempotency + status updates).
+ * Accepts Razorpay webhooks quickly (signature + idempotency), then applies
+ * subscription and entitlement updates in the background.
  */
 export class RazorpayWebhookService {
   readonly #razorpayClient: RazorpayClient;
@@ -81,10 +83,6 @@ export class RazorpayWebhookService {
       throw new UnauthorizedError('Missing Razorpay signature');
     }
 
-    if (!input.eventId) {
-      throw new BadRequestError('Missing Razorpay event id');
-    }
-
     const valid = this.#razorpayClient.verifyWebhookSignature(input.rawBody, input.signature);
 
     if (!valid) {
@@ -96,7 +94,8 @@ export class RazorpayWebhookService {
     try {
       parsed = JSON.parse(input.rawBody) as RazorpayWebhookPayload;
     } catch {
-      throw new BadRequestError('Invalid webhook JSON body');
+      logger.warn({ service: 'subscription-service' }, 'razorpay webhook JSON was invalid');
+      return { duplicate: false, ignored: true };
     }
 
     const eventType = parsed.event ?? 'unknown';
@@ -107,11 +106,12 @@ export class RazorpayWebhookService {
       : paymentEntity?.subscription_id
         ? String(paymentEntity.subscription_id)
         : null;
+    const eventId = input.eventId?.trim() || this.#fallbackEventId(input.rawBody);
 
     logger.info(
       {
         service: 'subscription-service',
-        eventId: input.eventId,
+        eventId,
         eventType,
         razorpaySubscriptionId,
       },
@@ -119,7 +119,7 @@ export class RazorpayWebhookService {
     );
 
     const created = await this.#webhookEventRepository.tryCreate({
-      eventId: input.eventId,
+      eventId,
       eventType,
       razorpaySubscriptionId,
       processingStatus: SUPPORTED_EVENTS.has(eventType) ? 'processed' : 'ignored',
@@ -135,20 +135,66 @@ export class RazorpayWebhookService {
 
     if (!razorpaySubscriptionId) {
       await this.#webhookEventRepository.markFailed(
-        input.eventId,
+        eventId,
         'Missing subscription id in webhook payload',
       );
-      throw new BadRequestError('Missing subscription id in webhook payload');
+      return { duplicate: false, ignored: true };
     }
 
     if (!subscriptionEntity && eventType !== 'payment.failed') {
       await this.#webhookEventRepository.markFailed(
-        input.eventId,
+        eventId,
         'Missing subscription entity in webhook payload',
       );
-      throw new BadRequestError('Missing subscription entity in webhook payload');
+      return { duplicate: false, ignored: true };
     }
 
+    // Ack before User Service / DB side effects so Razorpay gets 2xx within 5s.
+    this.#enqueueProcessing(
+      eventId,
+      eventType,
+      razorpaySubscriptionId,
+      subscriptionEntity,
+      paymentEntity,
+    );
+
+    return { duplicate: false, ignored: false };
+  }
+
+  #enqueueProcessing(
+    eventId: string,
+    eventType: string,
+    razorpaySubscriptionId: string,
+    subscriptionEntity: Record<string, unknown> | undefined,
+    paymentEntity: Record<string, unknown> | undefined,
+  ): void {
+    void this.#processAcceptedEvent(
+      eventId,
+      eventType,
+      razorpaySubscriptionId,
+      subscriptionEntity,
+      paymentEntity,
+    ).catch((error: unknown) => {
+      logger.error(
+        {
+          service: 'subscription-service',
+          eventId,
+          eventType,
+          razorpaySubscriptionId,
+          err: error instanceof Error ? error.message : 'webhook processing failed',
+        },
+        'razorpay webhook background processing failed',
+      );
+    });
+  }
+
+  async #processAcceptedEvent(
+    eventId: string,
+    eventType: string,
+    razorpaySubscriptionId: string,
+    subscriptionEntity: Record<string, unknown> | undefined,
+    paymentEntity: Record<string, unknown> | undefined,
+  ): Promise<void> {
     try {
       await this.#applySubscriptionEvent(
         eventType,
@@ -156,10 +202,9 @@ export class RazorpayWebhookService {
         subscriptionEntity,
         paymentEntity,
       );
-      return { duplicate: false, ignored: false };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'webhook processing failed';
-      await this.#webhookEventRepository.markFailed(input.eventId, message);
+      await this.#webhookEventRepository.markFailed(eventId, message);
       throw error;
     }
   }
@@ -201,7 +246,7 @@ export class RazorpayWebhookService {
     }
 
     if (!subscriptionEntity) {
-      await this.#userSubscriptionService.reconcilePeriodEnd(local);
+      await this.#safeReconcilePeriodEnd(local, eventType);
       return;
     }
 
@@ -254,14 +299,57 @@ export class RazorpayWebhookService {
     }
 
     if (nextStatus === 'authenticated' || nextStatus === 'active') {
-      await this.#userSubscriptionService.activateEntitlements(updated, {
-        recordPreviousPlan: local.status === 'created',
-      });
+      await this.#safeActivateEntitlements(updated, local.status === 'created');
     }
 
     if (RECONCILE_STATUSES.includes(nextStatus) || eventType === 'payment.failed') {
-      await this.#userSubscriptionService.reconcilePeriodEnd(updated);
+      await this.#safeReconcilePeriodEnd(updated, eventType);
     }
+  }
+
+  async #safeActivateEntitlements(
+    subscription: UserSubscription,
+    recordPreviousPlan: boolean,
+  ): Promise<void> {
+    try {
+      await this.#userSubscriptionService.activateEntitlements(subscription, {
+        recordPreviousPlan,
+      });
+    } catch (error) {
+      logger.warn(
+        {
+          service: 'subscription-service',
+          userId: subscription.userId,
+          subscriptionId: subscription.id,
+          err: error instanceof Error ? error.message : 'entitlement activation failed',
+        },
+        'webhook entitlement sync failed; local status already updated',
+      );
+    }
+  }
+
+  async #safeReconcilePeriodEnd(
+    subscription: UserSubscription,
+    eventType: string,
+  ): Promise<void> {
+    try {
+      await this.#userSubscriptionService.reconcilePeriodEnd(subscription);
+    } catch (error) {
+      logger.warn(
+        {
+          service: 'subscription-service',
+          userId: subscription.userId,
+          subscriptionId: subscription.id,
+          eventType,
+          err: error instanceof Error ? error.message : 'period-end reconcile failed',
+        },
+        'webhook period-end reconcile failed; local status already updated',
+      );
+    }
+  }
+
+  #fallbackEventId(rawBody: string): string {
+    return `sha256_${createHash('sha256').update(rawBody).digest('hex')}`;
   }
 
   #statusFromEvent(eventType: string, entity: Record<string, unknown>): UserSubscriptionStatus {

@@ -867,12 +867,13 @@ export const subscriptionServiceOpenApiDocument = {
         tags: ['Webhooks'],
         summary: 'Razorpay subscription webhooks',
         description:
-          'Receives Razorpay events. Requires X-Razorpay-Signature over raw body and X-Razorpay-Event-Id for idempotency. No JWT.',
+          'Receives Razorpay events. Verifies X-Razorpay-Signature over the raw body, records X-Razorpay-Event-Id for idempotency, then returns 200 before applying subscription/entitlement updates. Duplicate, ignored, and unknown-subscription events also return 200 so Razorpay does not disable the webhook. Invalid signatures return 401. No JWT.',
         operationId: 'razorpayWebhook',
         security: [],
         responses: {
           '200': {
-            description: 'Event accepted (including duplicates)',
+            description:
+              'Event accepted. Returned for new events, duplicates, ignored event types, and unknown subscriptions. Side effects run after this response.',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/WebhookAckResponse' },

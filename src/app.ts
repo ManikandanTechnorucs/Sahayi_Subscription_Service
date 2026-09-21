@@ -20,12 +20,13 @@ registerSwagger(app);
 // and blank Swagger UI. Keep this aligned with User Service.
 app.use(helmet({ hsts: false, contentSecurityPolicy: false }));
 app.use(cors({ origin: '*', allowedHeaders: '*', methods: '*' }));
+app.use(requestLogger);
 
-// Razorpay webhooks require the raw body for signature verification.
-app.use('/webhooks/razorpay', express.raw({ type: 'application/json' }), razorpayWebhookRoutes);
+// Accept any content type as a buffer. Razorpay HMAC is over the raw body, and a
+// missed application/json match would empty the body and 401 every delivery.
+app.use('/webhooks/razorpay', express.raw({ type: '*/*', limit: '1mb' }), razorpayWebhookRoutes);
 
 app.use(express.json());
-app.use(requestLogger);
 
 app.use('/subscriptions', subscriptionRoutes);
 app.use('/me/subscriptions', userSubscriptionRoutes);

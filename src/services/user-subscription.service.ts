@@ -80,14 +80,21 @@ export class UserSubscriptionService {
       inFlight.planId === input.planId &&
       inFlight.billingCycle === input.billingCycle
     ) {
-      return this.#toCheckoutResponse(
-        inFlight,
-        plan,
-        inFlight.replacesUserSubscriptionId ? 'period_end' : 'immediate',
-      );
-    }
+      const reusable = await this.#isReusableCheckout(inFlight);
 
-    if (inFlight) {
+      if (reusable) {
+        return this.#toCheckoutResponse(
+          inFlight,
+          plan,
+          inFlight.replacesUserSubscriptionId ? 'period_end' : 'immediate',
+        );
+      }
+
+      await this.#cancelQuietly(
+        inFlight,
+        'Stale checkout cancelled before recreating the same plan',
+      );
+    } else if (inFlight) {
       await this.#cancelQuietly(inFlight, 'Abandoned checkout cancelled before creating a new plan');
     }
 
@@ -140,11 +147,11 @@ export class UserSubscriptionService {
       quantity: 1,
       startAt: scheduledStartAt ? this.#dateToUnix(scheduledStartAt) : null,
       notes: {
-        userId,
+        userId: String(userId),
         localPlanId: String(plan.id),
-        billingCycle: input.billingCycle,
-        activation,
-        ...(billing ? { replacesUserSubscriptionId: billing.id } : {}),
+        billingCycle: String(input.billingCycle),
+        activation: String(activation),
+        ...(billing ? { replacesUserSubscriptionId: String(billing.id) } : {}),
       },
     });
 
@@ -794,6 +801,34 @@ export class UserSubscriptionService {
         note,
       },
     });
+  }
+
+  /**
+   * In-flight checkouts are reusable only while Razorpay still accepts payment.
+   * Cancelled / terminal remote subs must be recreated or Checkout bounces immediately.
+   */
+  async #isReusableCheckout(subscription: UserSubscription): Promise<boolean> {
+    if (subscription.status !== 'created') {
+      return false;
+    }
+
+    try {
+      const remote = await this.#razorpayClient.fetchSubscription(
+        subscription.razorpaySubscriptionId,
+      );
+      return remote.status === 'created';
+    } catch (error) {
+      logger.warn(
+        {
+          service: 'subscription-service',
+          userId: subscription.userId,
+          razorpaySubscriptionId: subscription.razorpaySubscriptionId,
+          err: error instanceof Error ? error.message : 'fetch failed',
+        },
+        'could not verify in-flight razorpay subscription; recreating checkout',
+      );
+      return false;
+    }
   }
 
   #resolveActivation(

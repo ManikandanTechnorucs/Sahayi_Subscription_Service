@@ -120,7 +120,7 @@ const normalizeInternalServiceUrl = (serviceUrl: string): string => {
 export const config = {
   IS_DEVELOPMENT: isDevelopment,
   DATABASE_URL: normalizeDatabaseUrl(getRequiredEnv('DATABASE_URL')),
-  JWT_SECRET: `"${getRequiredEnv('JWT_SECRET')}"`,
+  JWT_SECRET: getRequiredEnv('JWT_SECRET'),
   SUBSCRIPTION_SERVICE_PORT: Number(process.env.SUBSCRIPTION_SERVICE_PORT ?? 3012),
   SUBSCRIPTION_SERVICE_PUBLIC_URL:
     getOptionalEnv('SUBSCRIPTION_SERVICE_PUBLIC_URL') ?? PRODUCTION_SUBSCRIPTION_SERVICE_PUBLIC_URL,

@@ -1,6 +1,6 @@
 import http from 'node:http';
 import https from 'node:https';
-import { config } from '../../libs/config/src/config';
+import { alternateInternalServiceUrl, config } from '../../libs/config/src/config';
 import { logger } from '../../libs/logger/src/logger';
 import { ServiceUnavailableError } from '../errors/app-error';
 
@@ -84,10 +84,12 @@ export class UserEntitlementClient {
     body?: unknown;
   }): Promise<JsonResponse> {
     let lastError: unknown;
+    let url = input.url;
+    let triedStableHost = false;
 
     for (let attempt = 1; attempt <= ENTITLEMENT_ATTEMPTS; attempt += 1) {
       try {
-        return await this.#requestJson(input);
+        return await this.#requestJson({ ...input, url });
       } catch (error) {
         lastError = error;
         const message = describeNetworkError(error);
@@ -95,13 +97,37 @@ export class UserEntitlementClient {
           {
             service: 'subscription-service',
             userId: input.userId,
-            url: input.url,
+            url,
             action: input.action,
             attempt,
             err: message,
           },
           'user entitlement request failed',
         );
+
+        if (!triedStableHost && isConnectionRefused(error)) {
+          const stableUrl = alternateInternalServiceUrl(url);
+          if (stableUrl) {
+            url = stableUrl;
+            triedStableHost = true;
+            try {
+              return await this.#requestJson({ ...input, url });
+            } catch (stableError) {
+              lastError = stableError;
+              logger.warn(
+                {
+                  service: 'subscription-service',
+                  userId: input.userId,
+                  url,
+                  action: input.action,
+                  attempt,
+                  err: describeNetworkError(stableError),
+                },
+                'user entitlement request failed',
+              );
+            }
+          }
+        }
 
         if (attempt < ENTITLEMENT_ATTEMPTS) {
           await sleep(250 * attempt);
@@ -211,6 +237,35 @@ export class UserEntitlementClient {
     );
     throw new ServiceUnavailableError(`${prefix}: ${error}`);
   }
+}
+
+function isConnectionRefused(error: unknown): boolean {
+  const codes = new Set<string>();
+  const messages: string[] = [];
+
+  const visit = (value: unknown): void => {
+    if (!value || typeof value !== 'object') {
+      return;
+    }
+
+    const coded = value as { code?: unknown; message?: unknown; cause?: unknown };
+    if (typeof coded.code === 'string') {
+      codes.add(coded.code);
+    }
+    if (typeof coded.message === 'string') {
+      messages.push(coded.message);
+    }
+    if (coded.cause && coded.cause !== value) {
+      visit(coded.cause);
+    }
+  };
+
+  visit(error);
+  if (codes.has('ECONNREFUSED')) {
+    return true;
+  }
+
+  return messages.some(message => message.includes('ECONNREFUSED'));
 }
 
 function describeNetworkError(error: unknown): string {

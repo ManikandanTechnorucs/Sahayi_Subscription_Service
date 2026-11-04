@@ -82,24 +82,10 @@ const normalizeDatabaseUrl = (databaseUrl: string): string => {
 const isLoopbackHostname = (hostname: string): boolean =>
   hostname === 'localhost' || hostname === '127.0.0.1';
 
-/** Docker bridge addresses (172.16.0.0/12) change when a container is recreated. */
-const isDockerBridgeHostname = (hostname: string): boolean => {
-  const match = /^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(hostname);
-  if (!match) {
-    return false;
-  }
-
-  const secondOctet = Number(match[1]);
-  return secondOctet >= 16 && secondOctet <= 31;
-};
-
-const stableInternalHostname = (): string =>
-  isRunningInDocker() ? 'host.docker.internal' : '127.0.0.1';
-
 /**
- * Loopback and Docker-bridge User Service URLs work on the same host.
- * Rewrite only inside Docker, where localhost is the container itself.
- * Never rewrite these to the public hostname — that hairpin/IPv6
+ * Loopback User Service URLs work on the same host (local process or co-located
+ * VM). Rewrite only inside Docker, where localhost is the container itself.
+ * Never rewrite production loopback to the public hostname — that hairpin/IPv6
  * fetch often fails after payment as "fetch failed".
  */
 const normalizeInternalServiceUrl = (serviceUrl: string): string => {
@@ -111,26 +97,21 @@ const normalizeInternalServiceUrl = (serviceUrl: string): string => {
     return serviceUrl;
   }
 
-  const rewrite =
-    isLoopbackHostname(parsed.hostname) || isDockerBridgeHostname(parsed.hostname);
-  if (!rewrite) {
+  if (!isLoopbackHostname(parsed.hostname)) {
     return serviceUrl;
   }
 
-  const hostname = stableInternalHostname();
-  if (parsed.hostname === hostname) {
-    return serviceUrl;
+  if (isRunningInDocker()) {
+    parsed.hostname = 'host.docker.internal';
+    return parsed.toString();
   }
 
-  parsed.hostname = hostname;
-  return parsed.toString();
-};
+  if (parsed.hostname === 'localhost') {
+    parsed.hostname = '127.0.0.1';
+    return parsed.toString();
+  }
 
-/** Stable same-host URL when the configured host refuses the connection. */
-export const alternateInternalServiceUrl = (serviceUrl: string): string | null => {
-  const stable = normalizeInternalServiceUrl(serviceUrl).replace(/\/$/, '');
-  const current = serviceUrl.replace(/\/$/, '');
-  return stable === current ? null : stable;
+  return serviceUrl;
 };
 
 /**

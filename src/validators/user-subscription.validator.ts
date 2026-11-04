@@ -45,6 +45,10 @@ export const getCurrentUserSubscriptionSchema = {
   headers: bearerAuthHeadersSchema,
 };
 
+export const syncCurrentEntitlementSchema = {
+  headers: bearerAuthHeadersSchema,
+};
+
 export const getUserSubscriptionSchema = {
   headers: bearerAuthHeadersSchema,
   params: userSubscriptionIdParamsSchema,

@@ -19,6 +19,10 @@ export type SubscriptionPlan = {
   advancedAINotification: boolean;
   aiTextLimit: string | null;
   aiVoiceLimit: string | null;
+  aiTextMode: 'LIMITED' | 'UNLIMITED';
+  aiTextDailyLimit: number | null;
+  aiVoiceMode: 'LIMITED' | 'UNLIMITED';
+  aiVoiceDailyLimit: number | null;
   razorpayPlanIdMonthly: string | null;
   razorpayPlanIdYearly: string | null;
 };

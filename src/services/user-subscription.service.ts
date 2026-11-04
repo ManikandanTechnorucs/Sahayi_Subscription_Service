@@ -268,11 +268,30 @@ export class UserSubscriptionService {
           subscriptionId: updated.id,
           err: error instanceof Error ? error.message : 'entitlement activation failed',
         },
-        'checkout verified but entitlement sync failed; webhook will retry',
+        'checkout verified but entitlement sync failed',
       );
+      throw error;
     }
 
     return updated;
+  }
+
+  /**
+   * Writes users.SubscriptionId from the current immediate subscription.
+   * Period-end replacements stay off the user row until they become current.
+   */
+  async syncCurrentEntitlement(userId: string): Promise<UserSubscription | null> {
+    const current = await this.getCurrent(userId);
+    if (!current) {
+      return null;
+    }
+
+    if (current.replacesUserSubscriptionId && current.status !== 'active') {
+      return current;
+    }
+
+    await this.activateEntitlements(current);
+    return this.getCurrent(userId);
   }
 
   /**

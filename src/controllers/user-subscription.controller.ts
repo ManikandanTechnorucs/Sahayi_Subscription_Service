@@ -20,6 +20,7 @@ export class UserSubscriptionController {
     this.createSubscription = this.createSubscription.bind(this);
     this.verifyCheckout = this.verifyCheckout.bind(this);
     this.getCurrent = this.getCurrent.bind(this);
+    this.syncCurrentEntitlement = this.syncCurrentEntitlement.bind(this);
     this.getById = this.getById.bind(this);
     this.cancel = this.cancel.bind(this);
     this.undoCancel = this.undoCancel.bind(this);
@@ -100,6 +101,36 @@ export class UserSubscriptionController {
       );
 
       const data = await this.#userSubscriptionService.getCurrent(req.user.id);
+
+      if (!data) {
+        res.status(200).json(response.NO_DATA_FOUND);
+        return;
+      }
+
+      res.status(200).json(response.createJson(response.SUCCESS_CODE, data));
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async syncCurrentEntitlement(
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> {
+    try {
+      logger.info(
+        {
+          service: 'subscription-service',
+          requestId: req.headers['x-request-id'],
+          userId: req.user.id,
+          method: req.method,
+          path: req.path,
+        },
+        'sync current subscription entitlement request received',
+      );
+
+      const data = await this.#userSubscriptionService.syncCurrentEntitlement(req.user.id);
 
       if (!data) {
         res.status(200).json(response.NO_DATA_FOUND);

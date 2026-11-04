@@ -23,6 +23,10 @@ const subscriptionSelect = {
   AdvancedAINotification: true,
   AITextLimit: true,
   AIVoiceLimit: true,
+  AITextMode: true,
+  AITextDailyLimit: true,
+  AIVoiceMode: true,
+  AIVoiceDailyLimit: true,
   RazorpayPlanIdMonthly: true,
   RazorpayPlanIdYearly: true,
 } as const;
@@ -45,6 +49,10 @@ type SubscriptionRow = {
   AdvancedAINotification: boolean;
   AITextLimit: string | null;
   AIVoiceLimit: string | null;
+  AITextMode: 'LIMITED' | 'UNLIMITED';
+  AITextDailyLimit: number | null;
+  AIVoiceMode: 'LIMITED' | 'UNLIMITED';
+  AIVoiceDailyLimit: number | null;
   RazorpayPlanIdMonthly: string | null;
   RazorpayPlanIdYearly: string | null;
 };
@@ -292,6 +300,10 @@ export class SubscriptionRepository {
       advancedAINotification: row.AdvancedAINotification,
       aiTextLimit: row.AITextLimit,
       aiVoiceLimit: row.AIVoiceLimit,
+      aiTextMode: row.AITextMode,
+      aiTextDailyLimit: row.AITextDailyLimit,
+      aiVoiceMode: row.AIVoiceMode,
+      aiVoiceDailyLimit: row.AIVoiceDailyLimit,
       razorpayPlanIdMonthly: row.RazorpayPlanIdMonthly,
       razorpayPlanIdYearly: row.RazorpayPlanIdYearly,
     };

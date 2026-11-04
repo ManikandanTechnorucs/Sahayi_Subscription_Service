@@ -10,6 +10,7 @@ import {
   cancelUserSubscriptionSchema,
   createUserSubscriptionSchema,
   getCurrentUserSubscriptionSchema,
+  syncCurrentEntitlementSchema,
   getUserSubscriptionSchema,
   pauseUserSubscriptionSchema,
   resumeUserSubscriptionSchema,
@@ -41,6 +42,14 @@ router.get(
   requireAccessToken,
   validate(getCurrentUserSubscriptionSchema),
   asAuthenticatedHandler(container.userSubscriptionController.getCurrent),
+);
+
+router.post(
+  '/current/sync-entitlement',
+  authMiddleware,
+  requireAccessToken,
+  validate(syncCurrentEntitlementSchema),
+  asAuthenticatedHandler(container.userSubscriptionController.syncCurrentEntitlement),
 );
 
 router.get(

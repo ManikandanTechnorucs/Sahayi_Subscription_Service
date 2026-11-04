@@ -41,11 +41,6 @@ enum WebhookProcessingStatus {
   failed
 }
 
-enum SubscriptionLimitMode {
-  LIMITED
-  UNLIMITED
-}
-
 model subscriptionmaster {
   Id                       Int       @id @default(autoincrement())
   Name                     String    @unique(map: "UX_SubscriptionMaster_Name") @db.VarChar(100)
@@ -64,10 +59,6 @@ model subscriptionmaster {
   AdvancedAINotification   Boolean
   AITextLimit              String?   @db.VarChar(50)
   AIVoiceLimit             String?   @db.VarChar(50)
-  AITextMode               SubscriptionLimitMode @default(LIMITED)
-  AITextDailyLimit         Int?
-  AIVoiceMode              SubscriptionLimitMode @default(LIMITED)
-  AIVoiceDailyLimit        Int?
   RazorpayPlanIdMonthly    String?   @db.VarChar(40)
   RazorpayPlanIdYearly     String?   @db.VarChar(40)
   IsActive                 Boolean   @default(true)

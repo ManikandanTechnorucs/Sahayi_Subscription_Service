@@ -31,6 +31,9 @@ const planSelect = {
   AITextDailyLimit: true,
   AIVoiceMode: true,
   AIVoiceDailyLimit: true,
+  AdFreeExperience: true,
+  FallDetection: true,
+  JournalAccess: true,
   RazorpayPlanIdMonthly: true,
   RazorpayPlanIdYearly: true,
 } as const;
@@ -57,6 +60,9 @@ type PlanRow = {
   AITextDailyLimit: number | null;
   AIVoiceMode: SubscriptionPlan['aiVoiceMode'];
   AIVoiceDailyLimit: number | null;
+  AdFreeExperience: boolean;
+  FallDetection: boolean;
+  JournalAccess: boolean;
   RazorpayPlanIdMonthly: string | null;
   RazorpayPlanIdYearly: string | null;
 };
@@ -530,6 +536,9 @@ export class UserSubscriptionRepository {
       aiTextDailyLimit: row.AITextDailyLimit,
       aiVoiceMode: row.AIVoiceMode,
       aiVoiceDailyLimit: row.AIVoiceDailyLimit,
+      adFreeExperience: row.AdFreeExperience,
+      fallDetection: row.FallDetection,
+      journalAccess: row.JournalAccess,
       razorpayPlanIdMonthly: row.RazorpayPlanIdMonthly,
       razorpayPlanIdYearly: row.RazorpayPlanIdYearly,
     };

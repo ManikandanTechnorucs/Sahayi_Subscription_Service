@@ -68,6 +68,9 @@ model subscriptionmaster {
   AITextDailyLimit         Int?
   AIVoiceMode              SubscriptionLimitMode @default(LIMITED)
   AIVoiceDailyLimit        Int?
+  AdFreeExperience         Boolean   @default(false)
+  FallDetection            Boolean   @default(false)
+  JournalAccess            Boolean   @default(false)
   RazorpayPlanIdMonthly    String?   @db.VarChar(40)
   RazorpayPlanIdYearly     String?   @db.VarChar(40)
   IsActive                 Boolean   @default(true)

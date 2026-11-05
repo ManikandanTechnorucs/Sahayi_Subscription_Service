@@ -25,6 +25,9 @@ export type SubscriptionPlan = {
   aiTextDailyLimit: number | null;
   aiVoiceMode: SubscriptionLimitMode;
   aiVoiceDailyLimit: number | null;
+  adFreeExperience: boolean;
+  fallDetection: boolean;
+  journalAccess: boolean;
   razorpayPlanIdMonthly: string | null;
   razorpayPlanIdYearly: string | null;
 };

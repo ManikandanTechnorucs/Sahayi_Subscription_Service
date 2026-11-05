@@ -945,6 +945,9 @@ export const subscriptionServiceOpenApiDocument = {
           advancedAINotification: { type: 'boolean', example: false },
           aiTextLimit: { type: 'string', nullable: true, example: '100' },
           aiVoiceLimit: { type: 'string', nullable: true, example: '50' },
+          adFreeExperience: { type: 'boolean', example: false },
+          fallDetection: { type: 'boolean', example: false },
+          journalAccess: { type: 'boolean', example: true },
           razorpayPlanIdMonthly: {
             type: 'string',
             nullable: true,

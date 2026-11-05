@@ -1,3 +1,5 @@
+export type SubscriptionLimitMode = 'LIMITED' | 'UNLIMITED';
+
 /**
  * Subscription plan returned by subscription APIs.
  */
@@ -19,6 +21,10 @@ export type SubscriptionPlan = {
   advancedAINotification: boolean;
   aiTextLimit: string | null;
   aiVoiceLimit: string | null;
+  aiTextMode: SubscriptionLimitMode;
+  aiTextDailyLimit: number | null;
+  aiVoiceMode: SubscriptionLimitMode;
+  aiVoiceDailyLimit: number | null;
   razorpayPlanIdMonthly: string | null;
   razorpayPlanIdYearly: string | null;
 };

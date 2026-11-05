@@ -374,10 +374,48 @@ export class UserSubscriptionService {
       return null;
     }
 
+    if (ENTITLEMENT_STATUSES.includes(current.status)) {
+      await this.#reconcileUserEntitlement(userId, current.planId);
+    }
+
     return {
       ...current,
       scheduledChange: scheduled ? this.#toScheduledChange(scheduled) : null,
     };
+  }
+
+  /**
+   * Repairs users.SubscriptionId when billing is ahead of User Service entitlements
+   * (e.g. checkout verified but internal entitlement sync previously failed).
+   */
+  async #reconcileUserEntitlement(userId: string, planId: number): Promise<void> {
+    try {
+      const currentId = await this.#userEntitlementClient.getSubscriptionId(userId);
+      if (currentId === planId) {
+        return;
+      }
+
+      await this.#userEntitlementClient.setSubscriptionId(userId, planId);
+      logger.info(
+        {
+          service: 'subscription-service',
+          userId,
+          fromSubscriptionId: currentId,
+          toSubscriptionId: planId,
+        },
+        'user entitlement reconciled to billing plan',
+      );
+    } catch (error) {
+      logger.warn(
+        {
+          service: 'subscription-service',
+          userId,
+          planId,
+          err: error instanceof Error ? error.message : 'entitlement reconcile failed',
+        },
+        'user entitlement reconcile failed',
+      );
+    }
   }
 
   async getById(userId: string, subscriptionId: string): Promise<UserSubscription> {

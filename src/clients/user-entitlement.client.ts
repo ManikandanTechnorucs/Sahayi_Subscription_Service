@@ -1,5 +1,6 @@
 import http from 'node:http';
 import https from 'node:https';
+import type { PrismaClient } from '../../generated/prisma/client';
 import { config } from '../../libs/config/src/config';
 import { logger } from '../../libs/logger/src/logger';
 import { ServiceUnavailableError } from '../errors/app-error';
@@ -19,37 +20,122 @@ type JsonResponse = {
 };
 
 /**
- * Reads and updates users.SubscriptionId in User Service.
+ * Reads and updates users.SubscriptionId via User Service HTTP, with a shared
+ * MySQL fallback when the internal User Service URL is unreachable.
  */
 export class UserEntitlementClient {
+  readonly #prisma: PrismaClient;
+
+  constructor(prisma: PrismaClient) {
+    this.#prisma = prisma;
+  }
+
   async getSubscriptionId(userId: string): Promise<number | null> {
-    const { token, url } = this.#entitlementRequest(userId);
-    const response = await this.#requestWithRetry({
-      url,
-      method: 'GET',
-      token,
-      userId,
-      action: 'lookup',
-    });
+    try {
+      const { token, url } = this.#entitlementRequest(userId);
+      const response = await this.#requestWithRetry({
+        url,
+        method: 'GET',
+        token,
+        userId,
+        action: 'lookup',
+      });
 
-    this.#assertOk(response, userId, url, 'Failed to read user subscription entitlement');
+      this.#assertOk(response, userId, url, 'Failed to read user subscription entitlement');
 
-    const subscriptionId = response.payload?.data?.subscriptionId;
-    return typeof subscriptionId === 'number' ? subscriptionId : null;
+      const subscriptionId = response.payload?.data?.subscriptionId;
+      return typeof subscriptionId === 'number' ? subscriptionId : null;
+    } catch (error) {
+      logger.warn(
+        {
+          service: 'subscription-service',
+          userId,
+          err: error instanceof Error ? error.message : 'entitlement lookup failed',
+        },
+        'user entitlement HTTP lookup failed; falling back to shared DB',
+      );
+      return this.#getSubscriptionIdFromDb(userId);
+    }
   }
 
   async setSubscriptionId(userId: string, subscriptionId: number): Promise<void> {
-    const { token, url } = this.#entitlementRequest(userId);
-    const response = await this.#requestWithRetry({
-      url,
-      method: 'PUT',
-      token,
-      userId,
-      action: 'sync',
-      body: { subscriptionId },
+    try {
+      const { token, url } = this.#entitlementRequest(userId);
+      const response = await this.#requestWithRetry({
+        url,
+        method: 'PUT',
+        token,
+        userId,
+        action: 'sync',
+        body: { subscriptionId },
+      });
+
+      this.#assertOk(response, userId, url, 'Failed to update user subscription entitlement');
+
+      logger.info(
+        {
+          service: 'subscription-service',
+          userId,
+          subscriptionId,
+        },
+        'user entitlement synced',
+      );
+    } catch (error) {
+      logger.warn(
+        {
+          service: 'subscription-service',
+          userId,
+          subscriptionId,
+          err: error instanceof Error ? error.message : 'entitlement sync failed',
+        },
+        'user entitlement HTTP sync failed; falling back to shared DB',
+      );
+      await this.#setSubscriptionIdInDb(userId, subscriptionId);
+    }
+  }
+
+  async #getSubscriptionIdFromDb(userId: string): Promise<number | null> {
+    const row = await this.#prisma.users.findFirst({
+      where: {
+        Id: BigInt(userId),
+        IsActive: true,
+        IsDeleted: false,
+      },
+      select: { SubscriptionId: true },
     });
 
-    this.#assertOk(response, userId, url, 'Failed to update user subscription entitlement');
+    return typeof row?.SubscriptionId === 'number' ? row.SubscriptionId : null;
+  }
+
+  async #setSubscriptionIdInDb(userId: string, subscriptionId: number): Promise<void> {
+    const plan = await this.#prisma.subscriptionmaster.findUnique({
+      where: { Id: subscriptionId },
+      select: { Id: true, IsActive: true },
+    });
+
+    if (!plan?.IsActive) {
+      throw new ServiceUnavailableError(
+        `Failed to update user subscription entitlement: invalid plan ${subscriptionId}`,
+      );
+    }
+
+    const result = await this.#prisma.users.updateMany({
+      where: {
+        Id: BigInt(userId),
+        IsActive: true,
+        IsDeleted: false,
+      },
+      data: {
+        SubscriptionId: subscriptionId,
+        UpdatedAt: new Date(),
+      },
+    });
+
+    if (result.count < 1) {
+      throw new ServiceUnavailableError(
+        `Failed to update user subscription entitlement: user ${userId} not found`,
+      );
+    }
 
     logger.info(
       {
@@ -57,7 +143,7 @@ export class UserEntitlementClient {
         userId,
         subscriptionId,
       },
-      'user entitlement synced',
+      'user entitlement synced via shared DB fallback',
     );
   }
 

@@ -18,7 +18,7 @@ const subscriptionService = new SubscriptionService(subscriptionRepository, razo
 
 const userSubscriptionRepository = new UserSubscriptionRepository(prisma);
 const webhookEventRepository = new WebhookEventRepository(prisma);
-const userEntitlementClient = new UserEntitlementClient();
+const userEntitlementClient = new UserEntitlementClient(prisma);
 const userSubscriptionService = new UserSubscriptionService(
   userSubscriptionRepository,
   razorpayClient,

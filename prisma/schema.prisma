@@ -80,6 +80,16 @@ model subscriptionmaster {
   userSubscriptions UserSubscription[]
 }
 
+/// Shared users table (owned by User Service). Used as entitlement FK fallback
+/// when the internal HTTP sync to User Service is unreachable.
+model users {
+  Id             BigInt @id @default(autoincrement())
+  SubscriptionId Int?
+  IsActive       Boolean @default(true)
+  IsDeleted      Boolean @default(false)
+  UpdatedAt      DateTime? @db.DateTime(0)
+}
+
 model UserSubscription {
   Id                     BigInt                 @id @default(autoincrement())
   UserId                 String                 @db.VarChar(64)

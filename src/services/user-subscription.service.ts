@@ -155,36 +155,41 @@ export class UserSubscriptionService {
       },
     });
 
-    const created = await this.#userSubscriptionRepository.create({
-      userId,
-      planId: plan.id,
-      billingCycle: input.billingCycle,
-      status: 'created',
-      razorpaySubscriptionId: razorpaySubscription.id,
-      razorpayPlanId,
-      totalCount: razorpaySubscription.totalCount || totalCount,
-      quantity: razorpaySubscription.quantity || 1,
-      paidCount: razorpaySubscription.paidCount,
-      remainingCount: razorpaySubscription.remainingCount,
-      razorpayCustomerId: razorpaySubscription.customerId,
-      currentStart: this.#unixToDate(razorpaySubscription.currentStart),
-      currentEnd: this.#unixToDate(razorpaySubscription.currentEnd),
-      chargeAt: this.#unixToDate(razorpaySubscription.chargeAt),
-      replacesUserSubscriptionId:
-        activation === 'period_end' && billing ? BigInt(billing.id) : null,
-      scheduledStartAt,
-      history: {
-        eventSource: 'api_create',
-        eventType: 'subscription.created',
-        note: billing
-          ? activation === 'period_end'
-            ? `Scheduled ${input.billingCycle} subscription to replace plan ${billing.planId} at period end`
-            : `Created ${input.billingCycle} subscription to replace plan ${billing.planId}`
-          : `Created ${input.billingCycle} subscription`,
-      },
-    });
+    try {
+      const created = await this.#userSubscriptionRepository.create({
+        userId,
+        planId: plan.id,
+        billingCycle: input.billingCycle,
+        status: 'created',
+        razorpaySubscriptionId: razorpaySubscription.id,
+        razorpayPlanId,
+        totalCount: razorpaySubscription.totalCount || totalCount,
+        quantity: razorpaySubscription.quantity || 1,
+        paidCount: razorpaySubscription.paidCount,
+        remainingCount: razorpaySubscription.remainingCount,
+        razorpayCustomerId: razorpaySubscription.customerId,
+        currentStart: this.#unixToDate(razorpaySubscription.currentStart),
+        currentEnd: this.#unixToDate(razorpaySubscription.currentEnd),
+        chargeAt: this.#unixToDate(razorpaySubscription.chargeAt),
+        replacesUserSubscriptionId:
+          activation === 'period_end' && billing ? BigInt(billing.id) : null,
+        scheduledStartAt,
+        history: {
+          eventSource: 'api_create',
+          eventType: 'subscription.created',
+          note: billing
+            ? activation === 'period_end'
+              ? `Scheduled ${input.billingCycle} subscription to replace plan ${billing.planId} at period end`
+              : `Created ${input.billingCycle} subscription to replace plan ${billing.planId}`
+            : `Created ${input.billingCycle} subscription`,
+        },
+      });
 
-    return this.#toCheckoutResponse(created, plan, activation);
+      return this.#toCheckoutResponse(created, plan, activation);
+    } catch (error) {
+      await this.#cancelOrphanRazorpaySubscription(razorpaySubscription.id, userId);
+      throw error;
+    }
   }
 
   async verifyCheckout(userId: string, input: VerifyUserSubscriptionInput): Promise<UserSubscription> {
@@ -808,6 +813,29 @@ export class UserSubscriptionService {
         note,
       },
     });
+  }
+
+  /**
+   * A Razorpay subscription created without a local row still counts against
+   * the account quota. Cancel it when the database insert does not commit.
+   */
+  async #cancelOrphanRazorpaySubscription(
+    razorpaySubscriptionId: string,
+    userId: string,
+  ): Promise<void> {
+    try {
+      await this.#razorpayClient.cancelSubscription(razorpaySubscriptionId, false);
+    } catch (error) {
+      logger.warn(
+        {
+          service: 'subscription-service',
+          userId,
+          razorpaySubscriptionId,
+          err: error instanceof Error ? error.message : 'cancel orphan failed',
+        },
+        'failed to cancel razorpay subscription after local insert failure',
+      );
+    }
   }
 
   async #cancelQuietly(subscription: UserSubscription, note: string): Promise<void> {

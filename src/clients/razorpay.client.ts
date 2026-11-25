@@ -310,21 +310,65 @@ export class RazorpayClient {
   }
 
   #logAndThrow(message: string, error: unknown): never {
-    const detail =
-      error && typeof error === 'object' && 'error' in error
-        ? JSON.stringify((error as { error: unknown }).error)
-        : error instanceof Error
-          ? error.message
-          : 'unknown razorpay error';
+    const failure = this.#readRazorpayFailure(error);
 
     logger.error(
       {
         service: 'subscription-service',
-        detail,
+        detail: failure.detail,
+        statusCode: failure.statusCode,
       },
       message,
     );
 
-    throw new BadRequestError(`Razorpay request failed: ${message}`, 'RAZORPAY_ERROR');
+    const quotaLimited =
+      failure.statusCode === 429 ||
+      (failure.description !== null && /try after sometime/i.test(failure.description));
+
+    if (quotaLimited) {
+      throw new ServiceUnavailableError(
+        failure.description ??
+          'Razorpay is temporarily limiting new subscriptions. Try again shortly.',
+        'RAZORPAY_ERROR',
+      );
+    }
+
+    const clientMessage = failure.description
+      ? `Razorpay request failed: ${message}: ${failure.description}`
+      : `Razorpay request failed: ${message}`;
+
+    throw new BadRequestError(clientMessage, 'RAZORPAY_ERROR');
+  }
+
+  #readRazorpayFailure(error: unknown): {
+    statusCode: number | null;
+    description: string | null;
+    detail: string;
+  } {
+    if (!error || typeof error !== 'object') {
+      return {
+        statusCode: null,
+        description: null,
+        detail: 'unknown razorpay error',
+      };
+    }
+
+    const record = error as { statusCode?: unknown; error?: unknown };
+    const body =
+      record.error && typeof record.error === 'object'
+        ? (record.error as { description?: unknown })
+        : null;
+    const description =
+      body && typeof body.description === 'string' && body.description.trim()
+        ? body.description.trim()
+        : null;
+    const statusCode = typeof record.statusCode === 'number' ? record.statusCode : null;
+    const detail = body
+      ? JSON.stringify(record.error)
+      : error instanceof Error
+        ? error.message
+        : 'unknown razorpay error';
+
+    return { statusCode, description, detail };
   }
 }
